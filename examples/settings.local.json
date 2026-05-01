@@ -1,0 +1,39 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude-hark/hooks/claude-hark.sh pre-tool-use",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Edit|Write|Bash|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude-hark/hooks/claude-hark.sh permission",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Elicitation": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude-hark/hooks/claude-hark.sh elicitation",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

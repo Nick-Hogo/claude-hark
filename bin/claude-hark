@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+source "$repo_root/lib/common.sh"
+source "$repo_root/lib/session-state.sh"
+
+command_name="${1:-}"
+subcommand_name="${2:-}"
+cwd="${CLAUDE_HARK_CWD:-$PWD}"
+
+case "$command_name" in
+  alias)
+    case "$subcommand_name" in
+      set)
+        state_set_alias "$cwd" "$3" "$4" manual
+        ;;
+      get)
+        state_get_alias "$cwd" "$3"
+        ;;
+      clear)
+        state_clear_alias "$cwd" "$3"
+        ;;
+      list)
+        state_init "$cwd"
+        cat "$(state_path "$cwd")"
+        ;;
+      *)
+        echo "unknown alias subcommand" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  doctor)
+    state_init "$cwd"
+    command -v jq >/dev/null 2>&1 && echo 'jq: ok' || { echo 'jq: missing'; exit 1; }
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      command -v osascript >/dev/null 2>&1 && echo 'osascript: ok' || { echo 'osascript: missing'; exit 1; }
+    else
+      command -v notify-send >/dev/null 2>&1 && echo 'notify-send: ok' || echo 'notify-send: unavailable'
+    fi
+    [[ -f "$(state_path "$cwd")" ]] && echo 'state store: ok' || { echo 'state store: missing'; exit 1; }
+    if [[ -n "${CLAUDE_HARK_SUMMARIZER_COMMAND:-}" ]]; then
+      echo 'summarizer: configured'
+    else
+      echo 'summarizer: fallback rules'
+    fi
+    ;;
+  *)
+    echo "unsupported command" >&2
+    exit 1
+    ;;
+esac
