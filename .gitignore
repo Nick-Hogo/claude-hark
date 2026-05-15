@@ -1,2 +1,6 @@
 .worktrees/
 .claude-hark/
+__pycache__/
+.claude/
+graphify-out/
+node_modules/

@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ---- 模块加载 ----
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo_root/lib/common.sh"
 source "$repo_root/lib/session-state.sh"
+action_summary_py="$repo_root/lib/action_summary.py"
 
+action_summary() {
+  python3 "$action_summary_py" "$@"
+}
+
+# ---- 命令参数 ----
 command_name="${1:-}"
 subcommand_name="${2:-}"
 cwd="${CLAUDE_HARK_CWD:-$PWD}"
 
+# ---- CLI 命令分发 ----
 case "$command_name" in
   alias)
+    # 管理 session_id 到可读名称的映射。
     case "$subcommand_name" in
       set)
         state_set_alias "$cwd" "$3" "$4" manual
@@ -20,6 +29,15 @@ case "$command_name" in
         ;;
       clear)
         state_clear_alias "$cwd" "$3"
+        ;;
+      describe)
+        state_get_description "$cwd" "$3"
+        ;;
+      description-set)
+        state_set_description "$cwd" "$3" "$4" manual
+        ;;
+      description-clear)
+        state_clear_description "$cwd" "$3"
         ;;
       list)
         state_init "$cwd"
@@ -32,10 +50,18 @@ case "$command_name" in
     esac
     ;;
   doctor)
+    # 检查运行时依赖和状态存储是否可用。
     state_init "$cwd"
     command -v jq >/dev/null 2>&1 && echo 'jq: ok' || { echo 'jq: missing'; exit 1; }
     if [[ "$(uname -s)" == "Darwin" ]]; then
-      command -v osascript >/dev/null 2>&1 && echo 'osascript: ok' || { echo 'osascript: missing'; exit 1; }
+      if command -v terminal-notifier >/dev/null 2>&1; then
+        echo 'terminal-notifier: ok'
+      elif command -v osascript >/dev/null 2>&1; then
+        echo 'osascript: ok'
+      else
+        echo 'notifier: missing'
+        exit 1
+      fi
     else
       command -v notify-send >/dev/null 2>&1 && echo 'notify-send: ok' || echo 'notify-send: unavailable'
     fi
@@ -43,8 +69,24 @@ case "$command_name" in
     if [[ -n "${CLAUDE_HARK_SUMMARIZER_COMMAND:-}" ]]; then
       echo 'summarizer: configured'
     else
-      echo 'summarizer: fallback rules'
+      echo 'summarizer: not configured (safe fallback only)'
     fi
+    if [[ -n "${CLAUDE_HARK_SESSION_NAMER_COMMAND:-}" ]]; then
+      echo 'session namer: configured'
+    else
+      echo 'session namer: disabled'
+    fi
+    echo 'hook analysis: handler llm-first'
+    ;;
+  dashboard)
+    # 启动本地 state.json 可视化面板。
+    dashboard_dir="$repo_root/dashboard"
+    if [[ ! -f "$dashboard_dir/server.js" ]]; then
+      echo "dashboard not installed: $dashboard_dir" >&2
+      exit 1
+    fi
+    export CLAUDE_HARK_CWD="$cwd"
+    exec node "$dashboard_dir/server.js"
     ;;
   *)
     echo "unsupported command" >&2

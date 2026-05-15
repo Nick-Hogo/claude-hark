@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ---- 通用路径与 JSON 工具 ----
 project_root() {
   cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
 }

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ---- 模块加载 ----
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
+# ---- 状态文件路径与初始化 ----
 state_path() {
   local cwd="${1:-}"
   printf '%s/state.json\n' "$(hark_home_for_cwd "$cwd")"
@@ -16,6 +18,7 @@ state_init() {
   [[ -f "$path" ]] || printf '{}\n' > "$path"
 }
 
+# ---- 会话别名管理 ----
 state_set_alias() {
   local cwd="$1"
   local session_id="$2"
@@ -54,6 +57,48 @@ state_clear_alias() {
   path="$(state_path "$cwd")"
   tmp="$(mktemp)"
   jq --arg sid "$session_id" 'del(.sessions[$sid].alias)' "$path" > "$tmp"
+  mv "$tmp" "$path"
+}
+
+state_should_generate_ai_alias() {
+  local cwd="$1"
+  local session_id="$2"
+  local source_value
+  source_value="$(state_get_alias_source "$cwd" "$session_id")"
+  [[ -z "$source_value" || "$source_value" == "auto" ]]
+}
+
+state_set_description() {
+  local cwd="$1"
+  local session_id="$2"
+  local description_value="$3"
+  local source_value="$4"
+  local path tmp
+  state_init "$cwd"
+  path="$(state_path "$cwd")"
+  tmp="$(mktemp)"
+  jq --arg sid "$session_id" --arg description "$description_value" --arg source "$source_value" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+    .sessions = (.sessions // {})
+    | .sessions[$sid].description = {value: $description, source: $source, updatedAt: $now}
+  ' "$path" > "$tmp"
+  mv "$tmp" "$path"
+}
+
+state_get_description() {
+  local cwd="$1"
+  local session_id="$2"
+  state_init "$cwd"
+  jq -r --arg sid "$session_id" '.sessions[$sid].description.value // ""' "$(state_path "$cwd")"
+}
+
+state_clear_description() {
+  local cwd="$1"
+  local session_id="$2"
+  local path tmp
+  state_init "$cwd"
+  path="$(state_path "$cwd")"
+  tmp="$(mktemp)"
+  jq --arg sid "$session_id" 'del(.sessions[$sid].description)' "$path" > "$tmp"
   mv "$tmp" "$path"
 }
 
@@ -104,6 +149,7 @@ state_resolve_alias() {
   short_session_id "$session_id"
 }
 
+# ---- 最近动作缓存 ----
 state_set_latest_action() {
   local cwd="$1"
   local session_id="$2"
@@ -112,11 +158,13 @@ state_set_latest_action() {
   local target="$5"
   local summary="$6"
   local source_value="$7"
+  local display_json="${8:-null}"
+  local status="${9:-recorded}"
   local path tmp
   state_init "$cwd"
   path="$(state_path "$cwd")"
   tmp="$(mktemp)"
-  jq --arg sid "$session_id" --arg event "$event_name" --arg tool "$tool_name" --arg target "$target" --arg summary "$summary" --arg source "$source_value" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+  jq --arg sid "$session_id" --arg event "$event_name" --arg tool "$tool_name" --arg target "$target" --arg summary "$summary" --arg source "$source_value" --arg status "$status" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson display "$display_json" '
     .sessions = (.sessions // {})
     | .sessions[$sid].latestAction = {
         event: $event,
@@ -124,10 +172,60 @@ state_set_latest_action() {
         target: $target,
         summary: $summary,
         source: $source,
-        updatedAt: $now
+        status: $status,
+        updatedAt: $now,
+        display: $display
       }
   ' "$path" > "$tmp"
   mv "$tmp" "$path"
+}
+
+state_append_hook_event() {
+  local cwd="$1"
+  local session_id="$2"
+  local event_name="$3"
+  local tool_name="$4"
+  local target="$5"
+  local summary="$6"
+  local source_value="$7"
+  local purpose="${8:-$summary}"
+  local status="${9:-recorded}"
+  local display_json="${10:-null}"
+  local path tmp
+  state_init "$cwd"
+  path="$(state_path "$cwd")"
+  tmp="$(mktemp)"
+  jq --arg sid "$session_id" --arg event "$event_name" --arg tool "$tool_name" --arg target "$target" --arg summary "$summary" --arg purpose "$purpose" --arg status "$status" --arg source "$source_value" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson display "$display_json" '
+    .sessions = (.sessions // {})
+    | .sessions[$sid].hookEvents = (
+        ((.sessions[$sid].hookEvents // []) + [{
+          event: $event,
+          toolName: $tool,
+          target: $target,
+          purpose: $purpose,
+          summary: $summary,
+          status: $status,
+          source: $source,
+          display: $display,
+          recordedAt: $now
+        }]) | .[-100:]
+      )
+  ' "$path" > "$tmp"
+  mv "$tmp" "$path"
+}
+
+state_get_hook_history() {
+  local cwd="$1"
+  local session_id="$2"
+  state_init "$cwd"
+  jq -c --arg sid "$session_id" '.sessions[$sid].hookEvents // []' "$(state_path "$cwd")"
+}
+
+state_get_hook_history_count() {
+  local cwd="$1"
+  local session_id="$2"
+  state_init "$cwd"
+  jq -r --arg sid "$session_id" '(.sessions[$sid].hookEvents // []) | length' "$(state_path "$cwd")"
 }
 
 state_get_recent_action_summary() {

@@ -16,11 +16,14 @@ CLAUDE_HARK_SHELL_PROFILE="$shell_profile" \
 bash "$repo_root/install.sh"
 
 [[ -x "$install_root/hooks/claude-hark.sh" ]] || fail 'main hook script not installed'
-[[ -x "$install_root/hooks/notify-blocked.sh" ]] || fail 'compat hook script not installed'
+[[ ! -e "$install_root/hooks/notify-blocked.sh" ]] || fail 'deprecated compat hook should not be installed'
+[[ -f "$install_root/lib/notify-windows.sh" ]] || fail 'windows notifier backend not installed'
 [[ -x "$install_root/bin/claude-hark" ]] || fail 'cli not installed'
 settings_content="$(cat "$settings_path")"
 assert_contains "$settings_content" 'PreToolUse'
 assert_contains "$settings_content" 'PermissionRequest'
+assert_contains "$settings_content" 'Notification'
+assert_contains "$settings_content" 'permission_prompt'
 assert_contains "$settings_content" 'Elicitation'
 assert_contains "$settings_content" 'Edit|Write|Bash'
 assert_contains "$settings_content" 'Edit|Write|Bash|mcp__.*'

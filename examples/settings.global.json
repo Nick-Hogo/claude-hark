@@ -1,5 +1,16 @@
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude-hark/hooks/claude-hark.sh user-prompt-submit",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Edit|Write|Bash",
@@ -7,6 +18,30 @@
           {
             "type": "command",
             "command": "~/.claude-hark/hooks/claude-hark.sh pre-tool-use",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|Bash|Read|Grep|Glob|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude-hark/hooks/claude-hark.sh post-tool-use",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Edit|Write|Bash|Read|Grep|Glob|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude-hark/hooks/claude-hark.sh post-tool-use-failure",
             "timeout": 5
           }
         ]
@@ -24,12 +59,46 @@
         ]
       }
     ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude-hark/hooks/claude-hark.sh notification",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Elicitation": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "~/.claude-hark/hooks/claude-hark.sh elicitation",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude-hark/hooks/claude-hark.sh stop",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude-hark/hooks/claude-hark.sh stop-failure",
             "timeout": 5
           }
         ]

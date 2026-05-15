@@ -17,3 +17,9 @@ assert_contains() {
   local needle="$2"
   [[ "$haystack" == *"$needle"* ]] || fail "expected [$haystack] to contain [$needle]"
 }
+
+assert_not_contains() {
+  local haystack="$1"
+  local needle="$2"
+  [[ "$haystack" != *"$needle"* ]] || fail "expected [$haystack] not to contain [$needle]"
+}
