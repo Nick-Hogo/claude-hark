@@ -18,6 +18,10 @@ bash "$repo_root/install.sh"
 [[ -x "$install_root/hooks/claude-hark.sh" ]] || fail 'main hook script not installed'
 [[ ! -e "$install_root/hooks/notify-blocked.sh" ]] || fail 'deprecated compat hook should not be installed'
 [[ -f "$install_root/lib/notify-windows.sh" ]] || fail 'windows notifier backend not installed'
+[[ -f "$install_root/lib/hook_context.py" ]] || fail 'hook context module not installed'
+[[ -f "$install_root/lib/hook_handlers.py" ]] || fail 'hook handlers module not installed'
+[[ -f "$install_root/lib/llm_provider.py" ]] || fail 'llm provider module not installed'
+[[ -f "$install_root/lib/session_namer.py" ]] || fail 'session namer module not installed'
 [[ -x "$install_root/bin/claude-hark" ]] || fail 'cli not installed'
 settings_content="$(cat "$settings_path")"
 assert_contains "$settings_content" 'PreToolUse'
