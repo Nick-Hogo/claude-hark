@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Claude Code hook 主入口：接收 hook 事件、提取上下文、驱动摘要生成与通知。
+
 # ---- 模块加载 ----
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo_root/lib/common.sh"
@@ -8,6 +10,7 @@ source "$repo_root/lib/session-state.sh"
 source "$repo_root/lib/notifier.sh"
 action_summary_py="$repo_root/lib/action_summary.py"
 
+# 调用 Python 摘要模块的包装函数。
 action_summary() {
   python3 "$action_summary_py" "$@"
 }

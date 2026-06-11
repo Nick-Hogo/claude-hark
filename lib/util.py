@@ -1,3 +1,4 @@
+# 通用工具函数：JSON 解析、文本截断、敏感信息脱敏，供所有模块复用。
 import json
 import os
 import re
@@ -13,22 +14,12 @@ SENSITIVE_PATTERNS = [
 
 
 def summary_max_chars():
-    """Return the configured summary length limit.
-
-    Input: none; reads CLAUDE_HARK_SUMMARY_MAX_CHARS from the environment.
-    Output: int max character count, defaulting to DEFAULT_SUMMARY_MAX_CHARS.
-    Purpose: centralizes the length limit used when rendering action summaries.
-    """
+    """读取环境变量中配置的摘要最大字符数，默认 DEFAULT_SUMMARY_MAX_CHARS。"""
     return int(os.environ.get("CLAUDE_HARK_SUMMARY_MAX_CHARS", str(DEFAULT_SUMMARY_MAX_CHARS)))
 
 
 def load_json(value, default):
-    """Parse a JSON string with a safe fallback.
-
-    Input: value is the JSON text to parse; default is returned on parse failure.
-    Output: parsed JSON value, or default when value is invalid or not parseable.
-    Purpose: keeps hook payload parsing tolerant of malformed or missing JSON.
-    """
+    """解析 JSON 字符串，解析失败时返回 default，容错 hook payload 格式错误。"""
     try:
         return json.loads(value)
     except (TypeError, json.JSONDecodeError):
@@ -36,44 +27,24 @@ def load_json(value, default):
 
 
 def json_string_field(json_text, field):
-    """Read a string field from a JSON object.
-
-    Input: json_text is a JSON object string; field is the key to read.
-    Output: the field value when it is a string, otherwise an empty string.
-    Purpose: normalizes optional hook payload fields before rendering summaries.
-    """
+    """从 JSON 对象字符串中读取指定字段，非字符串值返回空字符串。"""
     data = load_json(json_text, {})
     value = data.get(field, "") if isinstance(data, dict) else ""
     return value if isinstance(value, str) else ""
 
 
 def basename(path):
-    """Return the final path component.
-
-    Input: path is a file or directory path string.
-    Output: final path component as a string.
-    Purpose: shortens file paths for notification labels and summaries.
-    """
+    """返回路径最后一段，用于通知标签和摘要中的短文件名。"""
     return PurePath(path).name
 
 
 def truncate_text(text, max_chars=500):
-    """Limit text to a maximum number of characters.
-
-    Input: text is the source string; max_chars is the maximum returned length.
-    Output: text sliced to max_chars characters.
-    Purpose: prevents long payloads from overflowing prompts or notifications.
-    """
+    """将文本截断至 max_chars 字符，防止长 payload 溢出提示词或通知。"""
     return text[:max_chars]
 
 
 def truncate_inline(text, max_chars=48):
-    """Convert text to a compact one-line preview.
-
-    Input: text is the source string; max_chars is the maximum returned length.
-    Output: a stripped single-line string, with ellipsis when truncated.
-    Purpose: renders command, pattern, or prompt snippets safely in one line.
-    """
+    """将文本压缩为单行预览，超出 max_chars 时末尾加省略号。"""
     value = text.replace("\n", " ").strip()
     if len(value) > max_chars:
         value = value[: max(0, max_chars - 3)].rstrip() + "..."
@@ -81,32 +52,17 @@ def truncate_inline(text, max_chars=48):
 
 
 def lines(*items):
-    """Join strings with newline separators.
-
-    Input: any number of string items.
-    Output: one string containing all items separated by newlines.
-    Purpose: keeps multi-line notification body construction readable.
-    """
+    """将多个字符串用换行符拼接，用于构建多行通知正文。"""
     return "\n".join(items)
 
 
 def first_nonempty_line(text):
-    """Return the first line with visible content.
-
-    Input: text is a potentially multi-line string.
-    Output: the first non-empty stripped line, or an empty string if none exists.
-    Purpose: extracts a concise candidate summary from external summarizer output.
-    """
+    """返回文本中第一条非空行，用于从外部摘要器输出中提取候选摘要。"""
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
 def redact_sensitive_text(text):
-    """Redact common key/value secrets in text.
-
-    Input: text is the source string that may contain sensitive values.
-    Output: text with matched secret values replaced by [REDACTED].
-    Purpose: prevents tokens, passwords, API keys, and secrets from appearing in summaries.
-    """
+    """将文本中的 API key、token、密码等敏感键值替换为 [REDACTED]。"""
     value = text
     for pattern in SENSITIVE_PATTERNS:
         value = re.sub(pattern, lambda match: match.group(1) + "[REDACTED]", value)

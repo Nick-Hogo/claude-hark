@@ -1,3 +1,4 @@
+// 仪表板 HTTP 服务器：提供静态前端资源并暴露 /api/state 接口供前端轮询会话状态
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { createReadStream, existsSync } from 'node:fs';
@@ -8,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.CLAUDE_HARK_DASHBOARD_PORT || 7842);
 let lastValidState = { sessions: {} };
 
+// 根据环境变量或当前工作目录解析 state.json 的绝对路径
 export function resolveStatePath(env = process.env, cwd = process.cwd()) {
   if (env.CLAUDE_HARK_HOME && env.CLAUDE_HARK_HOME.trim()) {
     return path.join(env.CLAUDE_HARK_HOME, 'state.json');
@@ -16,6 +18,7 @@ export function resolveStatePath(env = process.env, cwd = process.cwd()) {
   return path.join(base, '.claude-hark', 'state.json');
 }
 
+// 从磁盘读取 state.json，解析失败时回退到上次有效状态
 async function readState() {
   try {
     const raw = await readFile(resolveStatePath(), 'utf8');
@@ -33,6 +36,7 @@ async function readState() {
   }
 }
 
+// 根据文件扩展名返回对应的 MIME Content-Type 字符串
 function contentType(filePath) {
   if (filePath.endsWith('.js')) return 'text/javascript; charset=utf-8';
   if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
@@ -41,12 +45,14 @@ function contentType(filePath) {
   return 'text/html; charset=utf-8';
 }
 
+// 处理 /api/state 请求，将当前会话状态以 JSON 格式返回给前端
 async function handleApiState(response) {
   const state = await readState();
   response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify({ ...state, statePath: resolveStatePath() }));
 }
 
+// 提供 dist/ 目录中的静态文件；路径不存在时回退到 index.html（SPA 路由支持）
 function serveStatic(request, response) {
   const distRoot = path.join(__dirname, 'dist');
   const requestPath = decodeURIComponent(new URL(request.url, `http://${request.headers.host}`).pathname);

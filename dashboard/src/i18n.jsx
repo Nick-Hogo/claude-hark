@@ -1,5 +1,7 @@
+// 国际化模块：定义多语言字典（中文/英文/日文），并提供 I18nProvider 上下文和 useI18n 钩子
 import React from 'react';
 
+// 支持的语言列表，供语言切换按钮使用
 export const LANGUAGES = [
   { id: 'zh', label: '中文' },
   { id: 'en', label: 'EN' },
@@ -323,6 +325,7 @@ const DICTIONARY = {
 
 const I18nContext = React.createContext(null);
 
+// 根据 localStorage 存储值或浏览器语言偏好确定初始语言
 function initialLanguage() {
   const stored = window.localStorage.getItem('claude-hark-language');
   if (DICTIONARY[stored]) return stored;
@@ -332,15 +335,18 @@ function initialLanguage() {
   return 'en';
 }
 
+// 按点分隔路径从字典中取值，路径不存在时返回 undefined
 function lookup(language, key) {
   return key.split('.').reduce((value, part) => value?.[part], DICTIONARY[language]);
 }
 
+// 将翻译文本中的 {key} 占位符替换为实际参数值
 function interpolate(value, params) {
   if (!params) return value;
   return Object.entries(params).reduce((text, [key, replacement]) => text.replaceAll(`{${key}}`, replacement), value);
 }
 
+// 国际化上下文提供者：管理当前语言状态，并向子树暴露翻译函数 t
 export function I18nProvider({ children }) {
   const [language, setLanguageState] = React.useState(initialLanguage);
   const setLanguage = (nextLanguage) => {
@@ -356,6 +362,7 @@ export function I18nProvider({ children }) {
   return <I18nContext.Provider value={{ language, setLanguage, t }}>{children}</I18nContext.Provider>;
 }
 
+// 消费 I18n 上下文的自定义钩子，必须在 I18nProvider 内部使用
 export function useI18n() {
   const context = React.useContext(I18nContext);
   if (!context) throw new Error('useI18n must be used inside I18nProvider');

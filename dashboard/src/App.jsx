@@ -1,3 +1,4 @@
+// 应用根组件：定时拉取会话状态、计算汇总指标，并将数据传递给 KanbanTemplate 渲染
 import { useEffect, useMemo, useState } from 'react';
 import EmptyState from './components/EmptyState.jsx';
 import { KanbanTemplate } from './components/DesignTemplates.jsx';
