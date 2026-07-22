@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个测试脚本验证安装脚本复制文件并写入 hook 配置。
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo_root/tests/test_helpers.sh"

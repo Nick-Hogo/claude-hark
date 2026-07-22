@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个 shell 库负责读写 Claude-Hark 的会话状态文件。
 
 # ---- 模块加载 ----
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 # ---- 状态文件路径与初始化 ----
+# 返回指定工作目录对应的 state.json 路径。
 state_path() {
   local cwd="${1:-}"
   printf '%s/state.json\n' "$(hark_home_for_cwd "$cwd")"
 }
 
+# 初始化状态目录和空 state.json 文件。
 state_init() {
   local cwd="${1:-}"
   local path
@@ -19,6 +22,7 @@ state_init() {
 }
 
 # ---- 会话别名管理 ----
+# 写入指定 session 的可读别名及来源。
 state_set_alias() {
   local cwd="$1"
   local session_id="$2"
@@ -35,6 +39,7 @@ state_set_alias() {
   mv "$tmp" "$path"
 }
 
+# 读取指定 session 当前保存的别名。
 state_get_alias() {
   local cwd="$1"
   local session_id="$2"
@@ -42,6 +47,7 @@ state_get_alias() {
   jq -r --arg sid "$session_id" '.sessions[$sid].alias.value // ""' "$(state_path "$cwd")"
 }
 
+# 读取指定 session 别名的来源。
 state_get_alias_source() {
   local cwd="$1"
   local session_id="$2"
@@ -49,6 +55,7 @@ state_get_alias_source() {
   jq -r --arg sid "$session_id" '.sessions[$sid].alias.source // ""' "$(state_path "$cwd")"
 }
 
+# 清除指定 session 的别名信息。
 state_clear_alias() {
   local cwd="$1"
   local session_id="$2"
@@ -60,6 +67,7 @@ state_clear_alias() {
   mv "$tmp" "$path"
 }
 
+# 判断当前 session 是否允许自动生成 AI 别名。
 state_should_generate_ai_alias() {
   local cwd="$1"
   local session_id="$2"
@@ -68,6 +76,7 @@ state_should_generate_ai_alias() {
   [[ -z "$source_value" || "$source_value" == "auto" ]]
 }
 
+# 写入指定 session 的描述文本及来源。
 state_set_description() {
   local cwd="$1"
   local session_id="$2"
@@ -84,6 +93,7 @@ state_set_description() {
   mv "$tmp" "$path"
 }
 
+# 读取指定 session 当前保存的描述文本。
 state_get_description() {
   local cwd="$1"
   local session_id="$2"
@@ -91,6 +101,7 @@ state_get_description() {
   jq -r --arg sid "$session_id" '.sessions[$sid].description.value // ""' "$(state_path "$cwd")"
 }
 
+# 清除指定 session 的描述信息。
 state_clear_description() {
   local cwd="$1"
   local session_id="$2"
@@ -102,11 +113,13 @@ state_clear_description() {
   mv "$tmp" "$path"
 }
 
+# 将完整 session id 缩短成可读 fallback 名称。
 short_session_id() {
   local session_id="$1"
   printf 'sess:%s\n' "${session_id:0:8}"
 }
 
+# 根据仓库名和分支名生成自动别名。
 state_generate_auto_alias() {
   local cwd="$1"
   local branch_name="$2"
@@ -126,6 +139,7 @@ state_generate_auto_alias() {
   printf ''
 }
 
+# 按手动、已有、自动和短 id 的顺序解析展示别名。
 state_resolve_alias() {
   local cwd="$1"
   local session_id="$2"
@@ -150,6 +164,7 @@ state_resolve_alias() {
 }
 
 # ---- 最近动作缓存 ----
+# 更新指定 session 的 latestAction 快照。
 state_set_latest_action() {
   local cwd="$1"
   local session_id="$2"
@@ -180,6 +195,7 @@ state_set_latest_action() {
   mv "$tmp" "$path"
 }
 
+# 向指定 session 的 hookEvents 历史追加一条事件。
 state_append_hook_event() {
   local cwd="$1"
   local session_id="$2"
@@ -214,6 +230,7 @@ state_append_hook_event() {
   mv "$tmp" "$path"
 }
 
+# 读取指定 session 的 hook 事件历史。
 state_get_hook_history() {
   local cwd="$1"
   local session_id="$2"
@@ -221,6 +238,7 @@ state_get_hook_history() {
   jq -c --arg sid "$session_id" '.sessions[$sid].hookEvents // []' "$(state_path "$cwd")"
 }
 
+# 统计指定 session 已记录的 hook 事件数量。
 state_get_hook_history_count() {
   local cwd="$1"
   local session_id="$2"
@@ -228,6 +246,7 @@ state_get_hook_history_count() {
   jq -r --arg sid "$session_id" '(.sessions[$sid].hookEvents // []) | length' "$(state_path "$cwd")"
 }
 
+# 在 TTL 内读取最近动作摘要供权限通知复用。
 state_get_recent_action_summary() {
   local cwd="$1"
   local session_id="$2"

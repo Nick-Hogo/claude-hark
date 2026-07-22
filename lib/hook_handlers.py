@@ -1,12 +1,15 @@
+# 这个模块定义各类 hook 事件的分析、展示和通知处理器。
 # 每个 hook handler 负责自己的分析提示词、状态、降级文案和通知输出。
 import json
 import os
+import re
 
 from hook_context import HookContextExtractor, context_json
 from llm_provider import LLMSummaryProvider
 from util import lines, load_json, redact_sensitive_text, summary_max_chars, truncate_text
 
 
+# 提供所有 hook 事件处理器共享的分析、展示和通知生成流程。
 class BaseHookHandler:
     """所有 hook handler 的基类，统一处理 LLM 调用、展示结构和安全降级。"""
 
@@ -17,6 +20,7 @@ class BaseHookHandler:
     notify_icon = "ℹ️"
     should_notify = False
 
+    # 保存环境变量来源，便于测试和运行时配置。
     def __init__(self, event_kind, payload_json, history_json="[]", env=None):
         self.event_kind = event_kind
         self.payload = load_json(payload_json, {})
@@ -31,9 +35,11 @@ class BaseHookHandler:
         self.context = HookContextExtractor.extract(event_kind, self.tool_name, self.tool_input_json)
         self.llm = LLMSummaryProvider(self.env)
 
+    # 返回当前处理器希望 LLM 分析的目标。
     def prompt_goal(self):
         return "分析这个 hook 事件的用途、影响和下一步。"
 
+    # 在没有 LLM 结果时返回默认摘要。
     def fallback_summary(self):
         if self.event_kind in ("stop", "stop-failure"):
             return "需要查看 Claude Code 会话确认下一步"
@@ -43,19 +49,24 @@ class BaseHookHandler:
             return "需要回到 Claude Code 会话判断是否授权"
         return "需要查看 Claude Code 会话继续处理"
 
+    # 在没有 LLM 结果时返回默认目的。
     def fallback_purpose(self):
         return "等待人工确认"
 
+    # 在没有 LLM 结果时返回默认建议。
     def fallback_suggestion(self):
         return "回到对应 Claude Code 会话查看完整上下文"
 
+    # 在没有 LLM 结果时返回默认审阅点。
     def fallback_review(self):
         return ["查看 Claude Code 展示的完整请求", "确认操作范围和影响后再继续"]
 
+    # 截取最近 hook 历史并脱敏后放入分析上下文。
     def history_context(self):
         recent = self.history[-8:]
         return redact_sensitive_text(truncate_text(json.dumps(recent, ensure_ascii=False, indent=2), 2500))
 
+    # 组装发送给外部摘要器的 hook 分析提示词。
     def build_analysis_prompt(self):
         # Payload 和历史事件是不可信数据，拼入 prompt 前要明确告诉 LLM 这些不是指令。
         return lines(
@@ -74,26 +85,76 @@ class BaseHookHandler:
             "",
             self.prompt_goal(),
             "只输出 JSON，不要 markdown，不要代码块。schema:",
-            '{"title":"短标题","summary":"一句话摘要","purpose":"用途分类或目的","details":["关键细节"],"suggestion":"给用户的建议","review":["审阅点"],"nextAction":"用户下一步"}',
+            '{"title":"短标题","summary":"短摘要","purpose":"短目的","details":["关键细节"],"suggestion":"一句建议","review":["审阅点"],"nextAction":"下一步"}',
+            "输出要精简高信息密度：短句、少形容词、不写客套话、不写过程解释。summary 不超过 32 个中文字符，purpose 不超过 10 个中文字符，details/review 各 2-3 条。",
             "不要批准或拒绝权限，不要泄露密钥。所有字段使用简洁中文。",
         )
 
+    @staticmethod
+    def parse_labeled_text(raw):
+        result = {}
+        aliases = {
+            "标题": "title",
+            "title": "title",
+            "摘要": "summary",
+            "summary": "summary",
+            "目的": "purpose",
+            "purpose": "purpose",
+            "细节": "details",
+            "details": "details",
+            "建议": "suggestion",
+            "suggestion": "suggestion",
+            "审阅点": "review",
+            "审阅": "review",
+            "review": "review",
+            "下一步": "nextAction",
+            "nextaction": "nextAction",
+        }
+        list_fields = {"details", "review"}
+        current = None
+        for line in (raw or "").splitlines():
+            text = line.strip()
+            if not text:
+                continue
+            match = re.match(r"^(?:[-*]\s*)?([^：:]{1,20})[：:]\s*(.*)$", text)
+            if match:
+                key = aliases.get(match.group(1).strip().lower())
+                if key:
+                    current = key
+                    value = match.group(2).strip()
+                    if key in list_fields:
+                        result.setdefault(key, [])
+                        if value:
+                            result[key].append(re.sub(r"^[-*\d.、\s]+", "", value).strip())
+                    else:
+                        result[key] = value
+                    continue
+            if current in list_fields:
+                result.setdefault(current, []).append(re.sub(r"^[-*\d.、\s]+", "", text).strip())
+        return {key: value for key, value in result.items() if value}
+
+    # 将 LLM 输出解析成展示字段。
     def parse_llm_display(self, raw):
-        data = load_json(raw or "", {})
+        data = load_json(raw or "", None)
         if isinstance(data, dict):
             return data
+        labeled = self.parse_labeled_text(raw or "")
+        if labeled:
+            return labeled
         return {"summary": LLMSummaryProvider.normalize(raw or "")}
 
+    # 调用外部摘要器并返回解析结果、实际提示词和 LLM 状态。
     def run_llm(self):
         if not self.llm.available():
-            return None, self.build_analysis_prompt()
+            return None, self.build_analysis_prompt(), "unavailable"
         prompt = self.build_analysis_prompt()
         raw = self.llm.run(prompt)
         if raw is None or not raw.strip():
-            return None, prompt
-        return self.parse_llm_display(raw), prompt
+            return None, prompt, "failed"
+        return self.parse_llm_display(raw), prompt, "generated"
 
     @staticmethod
+    # 清理展示列表中的空值并进行脱敏截断。
     def clean_list(value):
         if isinstance(value, list):
             return [truncate_text(redact_sensitive_text(str(item)), 180) for item in value if str(item).strip()]
@@ -101,8 +162,10 @@ class BaseHookHandler:
             return [truncate_text(redact_sensitive_text(value), 180)]
         return []
 
-    def display_from_analysis(self, analysis, ai_input):
+    # 合并 LLM 或 fallback 结果生成 dashboard 展示对象。
+    def display_from_analysis(self, analysis, ai_input, llm_status):
         source = self.llm.source() if analysis else "fallback"
+        used_fallback = not bool(analysis)
         summary = truncate_text(redact_sensitive_text(str((analysis or {}).get("summary") or self.fallback_summary())), summary_max_chars())
         purpose = truncate_text(redact_sensitive_text(str((analysis or {}).get("purpose") or self.fallback_purpose())), 80)
         title = truncate_text(redact_sensitive_text(str((analysis or {}).get("title") or f"{self.title_prefix}：{self.context.target}")), 100)
@@ -124,8 +187,11 @@ class BaseHookHandler:
             "body": body,
             "aiInput": ai_input,
             "source": source,
+            "llmStatus": llm_status,
+            "usedFallback": used_fallback,
         }
 
+    # 将展示字段排版成通知正文。
     def body_text(self, title, purpose, summary, details, suggestion, review, next_action):
         return lines(
             title,
@@ -140,9 +206,10 @@ class BaseHookHandler:
             f"下一步：{next_action}",
         )
 
+    # 生成 shell hook 可写入状态的完整事件结果。
     def result(self):
-        analysis, ai_input = self.run_llm()
-        display = self.display_from_analysis(analysis, ai_input)
+        analysis, ai_input, llm_status = self.run_llm()
+        display = self.display_from_analysis(analysis, ai_input, llm_status)
         return {
             "event": self.event_kind,
             "toolName": self.tool_name,
@@ -150,6 +217,8 @@ class BaseHookHandler:
             "summary": display["summary"],
             "purpose": ai_input,
             "source": display["source"],
+            "llmStatus": display["llmStatus"],
+            "usedFallback": display["usedFallback"],
             "status": self.status,
             "display": display,
             "notificationTitle": self.notification_title(display),
@@ -157,52 +226,116 @@ class BaseHookHandler:
             "systemMessage": self.system_message(display),
         }
 
+    # 返回当前事件的系统通知标题。
     def notification_title(self, display):
         return ""
 
+    # 返回当前事件的系统通知正文。
     def notification_body(self, display):
         return ""
 
+    # 返回写给 Claude Code 的系统提示信息。
     def system_message(self, display):
         return ""
 
 
+# 处理用户提交 prompt 的会话开始事件。
 class UserPromptSubmitHandler(BaseHookHandler):
     """处理用户提交新 prompt 的事件，用于标记 session 开始进入新的任务意图。"""
 
     title_prefix = "用户输入"
 
+    # 返回当前处理器希望 LLM 分析的目标。
     def prompt_goal(self):
-        return "分析用户这次输入要 Claude 做什么，以及当前 session 接下来会进入什么工作。"
+        return lines(
+            "分析用户这次输入要 Claude 做什么，以及当前 session 接下来会进入什么工作。",
+            "优先按下面示例输出 JSON，字段名必须保持一致：",
+            "{",
+            '  "title": "用户输入：改通知摘要",',
+            '  "summary": "调整 hook 摘要生成",',
+            '  "purpose": "意图识别",',
+            '  "details": ["目标：修改代码", "范围：hook 通知"],',
+            '  "suggestion": "先定位摘要生成链路",',
+            '  "review": ["是否需改代码", "是否需看现有实现"],',
+            '  "nextAction": "进入实现分析"',
+            "}",
+            "如果不能输出 JSON，用“标题/摘要/目的/细节/建议/审阅点/下一步”标签逐项输出，仍保持精简。",
+        )
 
 
+# 处理工具执行前的预分析事件。
 class PreToolUseHandler(BaseHookHandler):
     """处理工具执行前事件，用于说明 Claude 即将做什么以及可能影响。"""
 
     title_prefix = "工具执行前分析"
 
+    # 返回当前处理器希望 LLM 分析的目标。
     def prompt_goal(self):
-        return "分析 Claude 即将执行这个工具的用途、目标、可能影响，以及用户稍后需要关注什么。"
+        return lines(
+            "分析 Claude 即将执行这个工具的用途、目标、可能影响，以及用户稍后需要关注什么。",
+            "优先按下面示例输出 JSON，字段名必须保持一致：",
+            "{",
+            '  "title": "执行前：编辑 README",',
+            '  "summary": "准备修改项目说明",',
+            '  "purpose": "文档修改",',
+            '  "details": ["工具：Edit", "文件：README.md"],',
+            '  "suggestion": "执行后检查 diff",',
+            '  "review": ["目标文件", "修改范围"],',
+            '  "nextAction": "等待执行结果"',
+            "}",
+            "如果不能输出 JSON，用“标题/摘要/目的/细节/建议/审阅点/下一步”标签逐项输出，仍保持精简。",
+        )
 
 
+# 处理工具成功执行后的状态更新事件。
 class PostToolUseHandler(BaseHookHandler):
     """处理工具成功执行后的事件，用于解释结果对当前任务意味着什么。"""
 
     title_prefix = "工具执行结果"
 
+    # 返回当前处理器希望 LLM 分析的目标。
     def prompt_goal(self):
-        return "分析这个工具刚完成后对当前任务意味着什么，以及下一步可能需要做什么。"
+        return lines(
+            "分析这个工具刚完成后对当前任务意味着什么，以及下一步可能需要做什么。",
+            "优先按下面示例输出 JSON，字段名必须保持一致：",
+            "{",
+            '  "title": "结果：测试通过",',
+            '  "summary": "测试命令成功",',
+            '  "purpose": "结果记录",',
+            '  "details": ["工具：Bash", "状态：成功"],',
+            '  "suggestion": "继续剩余验证",',
+            '  "review": ["失败输出", "隐藏警告"],',
+            '  "nextAction": "继续下一步"',
+            "}",
+            "如果不能输出 JSON，用“标题/摘要/目的/细节/建议/审阅点/下一步”标签逐项输出，仍保持精简。",
+        )
 
 
+# 处理工具执行失败后的状态更新事件。
 class PostToolUseFailureHandler(BaseHookHandler):
     """处理工具执行失败事件，用于提示失败影响和下一步排查方向。"""
 
     title_prefix = "工具执行失败"
 
+    # 返回当前处理器希望 LLM 分析的目标。
     def prompt_goal(self):
-        return "分析这个工具调用失败对当前任务的影响、可能原因和下一步排查建议。"
+        return lines(
+            "分析这个工具调用失败对当前任务的影响、可能原因和下一步排查建议。",
+            "优先按下面示例输出 JSON，字段名必须保持一致：",
+            "{",
+            '  "title": "失败：测试命令",',
+            '  "summary": "测试返回非零状态",',
+            '  "purpose": "失败排查",',
+            '  "details": ["工具：Bash", "状态：失败"],',
+            '  "suggestion": "先看首个错误",',
+            '  "review": ["首个失败用例", "路径或依赖问题"],',
+            '  "nextAction": "排查失败原因"',
+            "}",
+            "如果不能输出 JSON，用“标题/摘要/目的/细节/建议/审阅点/下一步”标签逐项输出，仍保持精简。",
+        )
 
 
+# 处理等待用户授权的权限请求事件。
 class PermissionRequestHandler(BaseHookHandler):
     """处理权限申请事件，用于生成审批前需要看的目的、风险和下一步。"""
 
@@ -212,25 +345,37 @@ class PermissionRequestHandler(BaseHookHandler):
     notify_icon = "⚙️"
     system_message_prefix = "等待权限"
 
+    # 返回当前处理器希望 LLM 分析的目标。
     def prompt_goal(self):
-        return "分析 Claude 为什么申请这次工具权限、批准前需要审阅什么、潜在风险和用户下一步。"
+        return lines(
+            "分析 Claude 为什么申请这次工具权限、批准前需要审阅什么、潜在风险和用户下一步。",
+            "优先按下面示例输出 JSON，字段名必须保持一致：",
+            "{",
+            '  "title": "权限：运行测试",',
+            '  "summary": "申请运行测试命令",',
+            '  "purpose": "测试验证",',
+            '  "details": ["工具：Bash", "命令：bash tests/run.sh"],',
+            '  "suggestion": "确认命令范围",',
+            '  "review": ["命令是否匹配任务", "是否修改外部状态"],',
+            '  "nextAction": "审阅后决定授权"',
+            "}",
+            "如果不能输出 JSON，用“标题/摘要/目的/细节/建议/审阅点/下一步”标签逐项输出，仍保持精简。",
+        )
 
-    def fallback_summary(self):
-        return "需要判断是否批准这次工具权限"
-
-    def fallback_purpose(self):
-        return "权限审批"
-
+    # 返回当前事件的系统通知标题。
     def notification_title(self, display):
         return display["title"]
 
+    # 返回当前事件的系统通知正文。
     def notification_body(self, display):
         return display.get("renderedBody") or display["body"]
 
+    # 返回写给 Claude Code 的系统提示信息。
     def system_message(self, display):
         return f"等待权限：{self.tool_name}；目的：{display['summary']}"
 
 
+# 处理等待用户选择或输入的事件。
 class ElicitationHandler(BaseHookHandler):
     """处理等待用户选择事件，用于说明需要用户补充什么以及选择影响。"""
 
@@ -240,61 +385,117 @@ class ElicitationHandler(BaseHookHandler):
     notify_icon = "❓"
     system_message_prefix = "等待选择"
 
+    # 返回当前处理器希望 LLM 分析的目标。
     def prompt_goal(self):
-        return "分析 Claude 需要用户做什么选择或补充什么信息、这个选择影响什么，以及下一步怎么处理。"
+        return lines(
+            "分析 Claude 需要用户做什么选择或补充什么信息、这个选择影响什么，以及下一步怎么处理。",
+            "优先按下面示例输出 JSON，字段名必须保持一致：",
+            "{",
+            '  "title": "等待选择：实现方式",',
+            '  "summary": "需要用户选择方案",',
+            '  "purpose": "用户决策",',
+            '  "details": ["需补充偏好", "影响代码方向"],',
+            '  "suggestion": "查看选项取舍",',
+            '  "review": ["选项影响", "推荐是否匹配目标"],',
+            '  "nextAction": "选择方案"',
+            "}",
+            "如果不能输出 JSON，用“标题/摘要/目的/细节/建议/审阅点/下一步”标签逐项输出，仍保持精简。",
+        )
 
-    def fallback_summary(self):
-        return "需要回到 Claude Code 会话完成选择"
-
-    def fallback_purpose(self):
-        return "用户决策"
-
+    # 返回当前事件的系统通知标题。
     def notification_title(self, display):
         return display["title"]
 
+    # 返回当前事件的系统通知正文。
     def notification_body(self, display):
         return display["body"]
 
+    # 返回写给 Claude Code 的系统提示信息。
     def system_message(self, display):
         return f"等待你的选择；目的：{display['summary']}"
 
 
+# 处理 Claude 当前 turn 正常结束后的待回顾状态。
 class StopHandler(BaseHookHandler):
     """处理正常结束事件，用最近 hook 历史总结本轮完成内容和用户下一步。"""
 
     status = "waiting_for_user"
     title_prefix = "本轮完成"
 
+    # 返回当前处理器希望 LLM 分析的目标。
     def prompt_goal(self):
-        return "根据最近 hook 历史总结本轮 Claude 完成了什么，并说明用户下一步需要检查、决定或继续指示什么。"
+        return lines(
+            "根据最近 hook 历史总结本轮 Claude 完成了什么，并说明用户下一步需要检查、决定或继续指示什么。",
+            "优先按下面示例输出 JSON，字段名必须保持一致：",
+            "{",
+            '  "title": "本轮完成：更新 hook",',
+            '  "summary": "修改和验证已完成",',
+            '  "purpose": "结果回顾",',
+            '  "details": ["已改代码", "已跑测试"],',
+            '  "suggestion": "检查变更摘要",',
+            '  "review": ["测试结果", "未处理要求"],',
+            '  "nextAction": "给出下一步"',
+            "}",
+            "如果不能输出 JSON，用“标题/摘要/目的/细节/建议/审阅点/下一步”标签逐项输出，仍保持精简。",
+        )
 
-    def fallback_summary(self):
-        return "本轮已结束，需要查看会话确认下一步"
 
-    def fallback_purpose(self):
-        return "等待下一步指示"
-
-
+# 处理 Claude 当前 turn 异常结束后的失败状态。
 class StopFailureHandler(StopHandler):
     """处理异常结束事件，用最近 hook 历史说明失败影响和恢复建议。"""
 
     status = "failed"
     title_prefix = "本轮异常结束"
 
+    # 返回当前处理器希望 LLM 分析的目标。
     def prompt_goal(self):
-        return "根据最近 hook 历史分析 Claude 本轮异常结束后的影响，并说明用户应如何恢复或继续。"
+        return lines(
+            "根据最近 hook 历史分析 Claude 本轮异常结束后的影响，并说明用户应如何恢复或继续。",
+            "优先按下面示例输出 JSON，字段名必须保持一致：",
+            "{",
+            '  "title": "异常结束：工具失败",',
+            '  "summary": "本轮未正常完成",',
+            '  "purpose": "异常恢复",',
+            '  "details": ["最近事件失败", "可能需重试"],',
+            '  "suggestion": "先看失败事件",',
+            '  "review": ["最后工具调用", "部分完成修改"],',
+            '  "nextAction": "恢复当前任务"',
+            "}",
+            "如果不能输出 JSON，用“标题/摘要/目的/细节/建议/审阅点/下一步”标签逐项输出，仍保持精简。",
+        )
 
-    def fallback_summary(self):
-        return "本轮异常结束，需要查看会话后继续处理"
 
-    def fallback_purpose(self):
-        return "异常恢复"
+# 处理 notification hook，当前只记录状态，不触发额外通知。
+class NotificationHandler(BaseHookHandler):
+    """处理 Claude Code Notification 事件，只记录到状态，不再额外弹窗或阻塞用户。"""
 
+    status = "active"
+    title_prefix = "Claude 通知"
 
-class NotificationHandler(PermissionRequestHandler):
-    """处理 Claude Code Notification 中的 permission_prompt，复用权限申请展示逻辑。"""
+    def prompt_goal(self):
+        return lines(
+            "分析这条 Claude Code 通知在提醒什么，只用于记录状态，不需要生成额外用户动作。",
+            "优先按下面示例输出 JSON，字段名必须保持一致：",
+            "{",
+            '  "title": "通知：权限提示",',
+            '  "summary": "记录权限提示通知",',
+            '  "purpose": "通知记录",',
+            '  "details": ["类型：permission_prompt", "不额外弹窗"],',
+            '  "suggestion": "作为上下文查看",',
+            '  "review": ["是否相关", "是否需回会话"],',
+            '  "nextAction": "查看原始通知"',
+            "}",
+            "如果不能输出 JSON，用“标题/摘要/目的/细节/建议/审阅点/下一步”标签逐项输出，仍保持精简。",
+        )
 
-    pass
+    def notification_title(self, display):
+        return ""
+
+    def notification_body(self, display):
+        return ""
+
+    def system_message(self, display):
+        return ""
 
 
 HANDLER_CLASSES = {
@@ -310,6 +511,7 @@ HANDLER_CLASSES = {
 }
 
 
+# 选择对应处理器并返回 JSON 序列化结果。
 def handle_event(event_kind, payload_json, history_json="[]"):
     handler_class = HANDLER_CLASSES.get(event_kind, BaseHookHandler)
     return json.dumps(handler_class(event_kind, payload_json, history_json).result(), ensure_ascii=False, separators=(",", ":"))

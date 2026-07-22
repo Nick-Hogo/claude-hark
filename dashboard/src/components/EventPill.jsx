@@ -1,20 +1,25 @@
+// 这个组件负责把单个 hook 事件渲染成时间线胶囊。
 const EVENT_STYLES = {
   'pre-tool-use': 'border-cyan-300/60 bg-cyan-300/15 text-cyan-100 shadow-cyan-950/80',
   permission: 'border-amber-300/70 bg-amber-300/15 text-amber-100 shadow-amber-950/80',
+  notification: 'border-yellow-300/70 bg-yellow-300/15 text-yellow-100 shadow-yellow-950/80',
   elicitation: 'border-violet-300/70 bg-violet-300/15 text-violet-100 shadow-violet-950/80',
 };
 
+// 根据工具名选择事件图标。
 function glyphFor(toolName = '?') {
   const names = { Edit: 'E', Write: 'W', Bash: 'B', Read: 'R', Grep: 'G', Glob: 'G' };
   return names[toolName] || toolName.slice(0, 1).toUpperCase() || '?';
 }
 
+// 将事件时间格式化为短时间文本。
 function formatTime(value) {
   if (!value) return 'unknown time';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+// 渲染时间线中的单个事件胶囊。
 export default function EventPill({ event, isLatest }) {
   const style = EVENT_STYLES[event.event] || 'border-slate-500/70 bg-slate-700/40 text-slate-100 shadow-slate-950/80';
   const shouldPulse = isLatest && (event.event === 'permission' || event.event === 'elicitation');

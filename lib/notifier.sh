@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个 shell 库负责选择平台通知后端并发送桌面通知。
 
 # ---- 平台通知实现加载 ----
 notifier_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -7,6 +8,7 @@ source "$notifier_dir/notify-macos.sh"
 source "$notifier_dir/notify-windows.sh"
 
 # ---- 统一通知入口 ----
+# 向用户发送通知，优先使用测试 stub 再选择系统后端。
 notify_user() {
   local title="$1"
   local body="$2"

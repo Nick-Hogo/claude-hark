@@ -1,11 +1,14 @@
+// 这个组件负责展示单个 Claude Code 会话的概览卡片。
 import ActivityBar from './ActivityBar.jsx';
 import EventTimeline from './EventTimeline.jsx';
 import StalenessBadge from './StalenessBadge.jsx';
 
+// 将长 session id 压缩成短标签。
 function shortId(sessionId) {
   return sessionId.length > 12 ? `${sessionId.slice(0, 8)}…${sessionId.slice(-4)}` : sessionId;
 }
 
+// 渲染包含摘要、时间线和最新动作的 session 卡片。
 export default function SessionCard({ session, maxEvents }) {
   const title = session.alias.value || shortId(session.sessionId);
   const latest = session.latestAction || {};

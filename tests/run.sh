@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个脚本负责按顺序运行 Claude-Hark 的全部 shell 测试。
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 

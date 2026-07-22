@@ -1,5 +1,7 @@
+// 这个组件负责在没有会话遥测数据时展示空状态提示。
 import { useI18n } from '../i18n.jsx';
 
+// 渲染没有状态数据时的空状态页面。
 export default function EmptyState({ statePath }) {
   const { t } = useI18n();
   return (

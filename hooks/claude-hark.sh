@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个 hook 入口负责接收 Claude Code 生命周期事件并写入会话状态。
 
 # Claude Code hook 主入口：接收 hook 事件、提取上下文、驱动摘要生成与通知。
 
@@ -11,6 +12,7 @@ source "$repo_root/lib/notifier.sh"
 action_summary_py="$repo_root/lib/action_summary.py"
 
 # 调用 Python 摘要模块的包装函数。
+# 调用 Python 摘要脚本并把参数原样转发给对应命令。
 action_summary() {
   python3 "$action_summary_py" "$@"
 }
@@ -26,6 +28,7 @@ tool_input_json="$(action_summary extract-tool-input-json "$payload")"
 alias_value="$(state_resolve_alias "$cwd" "$session_id" "$branch_name")"
 now_value="${CLAUDE_HARK_NOW:-$(date '+%H:%M:%S')}"
 
+# 处理单个 hook 事件，写入状态并按需发送通知。
 record_handler_event() {
   local normalized_event="$1"
   local history_json result_json result_event result_tool result_target result_summary result_source result_status display_json purpose notification_title notification_body system_message
@@ -87,7 +90,7 @@ case "$event_kind" in
   notification)
     notification_type="$(printf '%s' "$payload" | jq -r '.notification_type // ""')"
     if [[ "$notification_type" == "permission_prompt" ]]; then
-      record_handler_event "permission"
+      record_handler_event "notification"
     fi
     ;;
   elicitation)

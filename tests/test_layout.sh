@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个测试脚本验证项目关键文件和目录布局完整。
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 

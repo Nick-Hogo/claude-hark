@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个测试脚本验证 claude-hark CLI 的 alias、doctor 和 dashboard 命令。
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo_root/tests/test_helpers.sh"

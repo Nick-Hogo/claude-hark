@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个 shell 库负责通过 macOS 通知机制发送 Claude-Hark 提醒。
 
 # ---- macOS 通知适配 ----
+# 通过 terminal-notifier 或 osascript 发送 macOS 通知。
 notify_macos() {
   local title="$1"
   local body="$2"

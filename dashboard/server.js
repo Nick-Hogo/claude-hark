@@ -1,3 +1,4 @@
+// 这个服务负责读取 Claude-Hark 状态文件并提供 dashboard 静态资源和 API。
 // 仪表板 HTTP 服务器：提供静态前端资源并暴露 /api/state 接口供前端轮询会话状态
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -10,6 +11,7 @@ const port = Number(process.env.CLAUDE_HARK_DASHBOARD_PORT || 7842);
 let lastValidState = { sessions: {} };
 
 // 根据环境变量或当前工作目录解析 state.json 的绝对路径
+// 解析 dashboard 应读取的 Claude-Hark 状态文件路径。
 export function resolveStatePath(env = process.env, cwd = process.cwd()) {
   if (env.CLAUDE_HARK_HOME && env.CLAUDE_HARK_HOME.trim()) {
     return path.join(env.CLAUDE_HARK_HOME, 'state.json');
@@ -37,6 +39,7 @@ async function readState() {
 }
 
 // 根据文件扩展名返回对应的 MIME Content-Type 字符串
+// 根据文件扩展名返回静态资源 Content-Type。
 function contentType(filePath) {
   if (filePath.endsWith('.js')) return 'text/javascript; charset=utf-8';
   if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
@@ -53,6 +56,7 @@ async function handleApiState(response) {
 }
 
 // 提供 dist/ 目录中的静态文件；路径不存在时回退到 index.html（SPA 路由支持）
+// 读取并返回 dashboard 的静态资源文件。
 function serveStatic(request, response) {
   const distRoot = path.join(__dirname, 'dist');
   const requestPath = decodeURIComponent(new URL(request.url, `http://${request.headers.host}`).pathname);
@@ -70,6 +74,7 @@ function serveStatic(request, response) {
   createReadStream(filePath).pipe(response);
 }
 
+// 创建 HTTP 服务并分发 API 与静态资源请求。
 const server = createServer(async (request, response) => {
   if (request.url?.startsWith('/api/state')) {
     await handleApiState(response);

@@ -1,3 +1,5 @@
+// 这个组件负责根据最近活跃时间展示会话新鲜度标记。
+// 根据最近活跃时间生成新鲜度标签。
 function labelFor(lastActiveAt) {
   if (!lastActiveAt) return { text: 'no signal', className: 'border-slate-600 bg-slate-800/80 text-slate-300' };
   const seconds = Math.max(0, Math.floor((Date.now() - lastActiveAt) / 1000));
@@ -8,6 +10,7 @@ function labelFor(lastActiveAt) {
   return { text: `idle ${hours}h`, className: 'border-slate-500/40 bg-slate-700/30 text-slate-300' };
 }
 
+// 渲染 session 的新鲜度和状态标签。
 export default function StalenessBadge({ lastActiveAt, event }) {
   const badge = labelFor(lastActiveAt);
   const eventLabel = event || 'unknown';

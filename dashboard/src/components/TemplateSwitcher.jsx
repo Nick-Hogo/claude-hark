@@ -1,3 +1,4 @@
+// 这个组件负责在不同 dashboard 视图模板之间切换。
 import { LANGUAGES, useI18n } from '../i18n.jsx';
 
 const TEMPLATES = [
@@ -6,6 +7,7 @@ const TEMPLATES = [
   { id: 'kanban', nameKey: 'templates.kanban', descriptionKey: 'templates.kanbanDescription' },
 ];
 
+// 渲染 dashboard 模板选择按钮组。
 export default function TemplateSwitcher({ value, onChange }) {
   const { language, setLanguage, t } = useI18n();
   return (

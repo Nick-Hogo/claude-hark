@@ -1,10 +1,13 @@
+// 这个组件集合负责渲染 dashboard 的多种视图模板和任务板详情页。
 import React from 'react';
 import { LANGUAGES, useI18n } from '../i18n.jsx';
 
+// 将长 session id 压缩成短标签。
 function shortId(sessionId) {
   return sessionId.length > 10 ? sessionId.slice(0, 10) : sessionId;
 }
 
+// 将时间值格式化为界面可读文本。
 function timeLabel(value, t) {
   if (!value) return t('common.noActivity');
   const date = new Date(value);
@@ -15,6 +18,7 @@ const TASK_EVENTS = new Set(['permission', 'elicitation']);
 const ACTIVE_EVENTS = new Set(['user-prompt-submit', 'pre-tool-use', 'post-tool-use', 'post-tool-use-failure']);
 const REVIEW_EVENTS = new Set(['stop', 'stop-failure']);
 
+// 返回不同事件类型对应的背景色类名。
 function eventColor(event) {
   return {
     'user-prompt-submit': 'bg-[#6f97b8]',
@@ -22,12 +26,14 @@ function eventColor(event) {
     'post-tool-use': 'bg-[#5f8f55]',
     'post-tool-use-failure': 'bg-[#c65343]',
     permission: 'bg-[#c47c31]',
+    notification: 'bg-[#d0a33a]',
     elicitation: 'bg-[#8b69ad]',
     stop: 'bg-[#7d8a8d]',
     'stop-failure': 'bg-[#c65343]',
   }[event] || 'bg-stone-400';
 }
 
+// 返回不同事件类型对应的文字色类名。
 function eventText(event) {
   return {
     'user-prompt-submit': 'text-[#426f99]',
@@ -35,12 +41,14 @@ function eventText(event) {
     'post-tool-use': 'text-[#4f7448]',
     'post-tool-use-failure': 'text-[#9f3f34]',
     permission: 'text-[#a8611d]',
+    notification: 'text-[#9b741b]',
     elicitation: 'text-[#76509f]',
     stop: 'text-[#5d6b6e]',
     'stop-failure': 'text-[#9f3f34]',
   }[event] || 'text-stone-600';
 }
 
+// 返回不同事件类型对应的浅色标签样式。
 function eventWash(event) {
   return {
     'user-prompt-submit': 'bg-[#e9f0f4] text-[#426f99]',
@@ -48,12 +56,14 @@ function eventWash(event) {
     'post-tool-use': 'bg-[#e8f1df] text-[#4f7448]',
     'post-tool-use-failure': 'bg-[#f5dfd9] text-[#9f3f34]',
     permission: 'bg-[#f6e7d2] text-[#a8611d]',
+    notification: 'bg-[#f7edcf] text-[#9b741b]',
     elicitation: 'bg-[#eee7f4] text-[#76509f]',
     stop: 'bg-[#e7ecec] text-[#5d6b6e]',
     'stop-failure': 'bg-[#f5dfd9] text-[#9f3f34]',
   }[event] || 'bg-stone-100 text-stone-600';
 }
 
+// 根据最新事件判断 session 应进入哪个看板分栏。
 function sessionPanel(session) {
   const event = session.latestAction.event;
   if (TASK_EVENTS.has(event)) return 'quests';
@@ -62,6 +72,7 @@ function sessionPanel(session) {
   return session.latestAction.summary ? 'active' : 'archive';
 }
 
+// 将 sessions 按任务板状态分组。
 function sessionsByState(sessions) {
   return {
     quests: sessions.filter((session) => sessionPanel(session) === 'quests'),
@@ -70,6 +81,7 @@ function sessionsByState(sessions) {
   };
 }
 
+// 提取最近几个需要用户响应的关键事件。
 function keystonesFor(sessions) {
   return sessions
     .flatMap((session) => session.hookEvents.map((event) => ({ ...event, session })))
@@ -78,6 +90,7 @@ function keystonesFor(sessions) {
     .slice(0, 4);
 }
 
+// 将开始和结束时间转换成简短持续时间。
 function durationLabel(start, end) {
   if (!start || !end) return null;
   const delta = Math.max(0, end - start);
@@ -87,6 +100,7 @@ function durationLabel(start, end) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+// 根据 hook 历史计算单个 session 的统计属性。
 function sessionStats(session) {
   const events = session.hookEvents || [];
   const times = events.map((event) => Date.parse(event.recordedAt || '')).filter(Number.isFinite);
@@ -108,6 +122,7 @@ function sessionStats(session) {
   };
 }
 
+// 根据统计属性生成雷达图坐标。
 function radarPoints(stats) {
   const axes = [
     ['Activity', Math.min(stats.eventCount / 20, 1)],
@@ -130,6 +145,7 @@ function radarPoints(stats) {
   return { axes, points, outline };
 }
 
+// 汇总最近 28 天的 hook 活动日历数据。
 function activityCalendar(sessions) {
   const today = new Date();
   const month = today.getMonth();
@@ -165,26 +181,32 @@ function activityCalendar(sessions) {
   };
 }
 
+// 返回 session 的展示标题。
 function sessionTitle(session) {
   return session.alias.value || shortId(session.sessionId);
 }
 
+// 返回 session 最新动作摘要或本地化占位文本。
 function latestSummary(session, t) {
   return session.latestAction.summary || t('common.noSummary');
 }
 
+// 返回 session 的可选描述文本。
 function sessionDescription(session) {
   return session.description?.value || '';
 }
 
+// 读取事件中用于详情面板的 display 对象。
 function eventDisplay(event) {
   return event.display && typeof event.display === 'object' ? event.display : {};
 }
 
+// 过滤列表中的空展示项。
 function nonEmptyItems(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
 }
 
+// 渲染左侧 session 索引列表并处理选择。
 function SessionList({ sessions, selectedId, onSelect, collapsed, setCollapsed }) {
   const { t } = useI18n();
   return (
@@ -217,12 +239,14 @@ function SessionList({ sessions, selectedId, onSelect, collapsed, setCollapsed }
   );
 }
 
+// 渲染单个 session 的详情页和事件日志。
 function SessionDetailPage({ session, onBack }) {
   const { t } = useI18n();
   if (!session) return null;
   const events = [...session.hookEvents].sort((left, right) => Date.parse(right.recordedAt || 0) - Date.parse(left.recordedAt || 0));
   const stats = sessionStats(session);
   const [expanded, setExpanded] = React.useState(() => new Set([0]));
+  // 切换详情页中单个事件的展开状态。
   const toggle = (index) => {
     setExpanded((current) => {
       const next = new Set(current);
@@ -299,6 +323,7 @@ function SessionDetailPage({ session, onBack }) {
   );
 }
 
+// 渲染单个 hook 事件的结构化详情。
 function EventDetail({ event }) {
   const { t } = useI18n();
   const display = eventDisplay(event);
@@ -330,6 +355,7 @@ function EventDetail({ event }) {
   );
 }
 
+// 渲染详情区域中的单行键值信息。
 function DetailRow({ label, value, compact = false }) {
   return (
     <div className={`grid gap-2 border-b border-[#f0e5d3] py-1 last:border-0 ${compact ? 'sm:grid-cols-[6rem_1fr]' : 'sm:grid-cols-[5rem_1fr]'}`}>
@@ -339,6 +365,7 @@ function DetailRow({ label, value, compact = false }) {
   );
 }
 
+// 渲染详情区域中的列表型信息。
 function DetailList({ label, items }) {
   return (
     <div className="grid gap-2 border-b border-[#f0e5d3] py-2 last:border-0 sm:grid-cols-[6rem_1fr]">
@@ -350,6 +377,7 @@ function DetailList({ label, items }) {
   );
 }
 
+// 渲染详情区域中的多行文本块。
 function DetailBlock({ label, value }) {
   return (
     <div className="border-b border-[#f0e5d3] py-2 last:border-0">
@@ -359,6 +387,7 @@ function DetailBlock({ label, value }) {
   );
 }
 
+// 渲染 session 的统计属性和雷达图。
 function AttributePanel({ session, stats, embedded = false }) {
   const { t } = useI18n();
   const radar = radarPoints(stats);
@@ -395,6 +424,7 @@ function AttributePanel({ session, stats, embedded = false }) {
   );
 }
 
+// 渲染属性面板中的单个统计项。
 function Stat({ label, value, muted }) {
   return (
     <div className="flex justify-between gap-3 border-b border-[#eee2cf] pb-1">
@@ -404,6 +434,7 @@ function Stat({ label, value, muted }) {
   );
 }
 
+// 渲染任务详情页中的行动建议卡片。
 function QuestAction({ title, detail, tone }) {
   const tones = {
     amber: 'bg-[#fff3d7] text-[#7a4516] ring-[#dfbe86]',
@@ -418,6 +449,7 @@ function QuestAction({ title, detail, tone }) {
   );
 }
 
+// 渲染日志账本风格的 dashboard 模板。
 export function LedgerTemplate({ sessions, metrics, statePath, lastUpdated }) {
   const { t } = useI18n();
   return (
@@ -464,6 +496,7 @@ export function LedgerTemplate({ sessions, metrics, statePath, lastUpdated }) {
   );
 }
 
+// 渲染河流时间线风格的 dashboard 模板。
 export function RiverTemplate({ sessions, metrics }) {
   const { t } = useI18n();
   return (
@@ -507,6 +540,7 @@ export function RiverTemplate({ sessions, metrics }) {
   );
 }
 
+// 在任务板和 session 详情页之间切换。
 export function KanbanTemplate({ sessions, metrics, soundEnabled, setSoundEnabled, playTestSound }) {
   const columns = sessionsByState(sessions);
   const keystones = keystonesFor(sessions);
@@ -520,6 +554,7 @@ export function KanbanTemplate({ sessions, metrics, soundEnabled, setSoundEnable
   return <KanbanBoard sessions={sessions} metrics={metrics} columns={columns} keystones={keystones} setSelected={setSelectedId} soundEnabled={soundEnabled} setSoundEnabled={setSoundEnabled} playTestSound={playTestSound} />;
 }
 
+// 渲染三栏任务板、关键节点和活动日历。
 function KanbanBoard({ sessions, metrics, columns, keystones, setSelected, soundEnabled, setSoundEnabled, playTestSound }) {
   const { language, setLanguage, t } = useI18n();
   const [collapsed, setCollapsed] = React.useState(false);
@@ -616,6 +651,7 @@ function KanbanBoard({ sessions, metrics, columns, keystones, setSelected, sound
   );
 }
 
+// 渲染 dashboard 右上角的活动日历。
 function ActivityCalendar({ days: calendar, metrics }) {
   const { t } = useI18n();
   const weekdays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -648,6 +684,7 @@ function ActivityCalendar({ days: calendar, metrics }) {
   );
 }
 
+// 渲染任务板分栏中的单个 session 卡片。
 function QuestCard({ session, onClick }) {
   const { t } = useI18n();
   const isGate = TASK_EVENTS.has(session.latestAction.event);

@@ -1,3 +1,5 @@
+// 这个组件负责展示 dashboard 顶部标题、状态路径和刷新信息。
+// 渲染 dashboard 顶部标题、刷新时间和状态路径。
 export default function TopBar({ statePath, lastUpdated, autoRefresh, setAutoRefresh, onRefresh, error }) {
   return (
     <header className="overflow-hidden rounded-[2rem] border border-cyan-300/20 bg-slate-950/70 p-5 shadow-2xl shadow-cyan-950/40 backdrop-blur-xl md:p-6">

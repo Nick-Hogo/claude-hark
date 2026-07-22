@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个 CLI 入口负责管理会话别名、运行诊断并启动 dashboard。
 
 # ---- 模块加载 ----
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -7,6 +8,7 @@ source "$repo_root/lib/common.sh"
 source "$repo_root/lib/session-state.sh"
 action_summary_py="$repo_root/lib/action_summary.py"
 
+# 调用 Python 摘要脚本并把参数原样转发给对应命令。
 action_summary() {
   python3 "$action_summary_py" "$@"
 }

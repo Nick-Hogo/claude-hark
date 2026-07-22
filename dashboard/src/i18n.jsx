@@ -1,3 +1,4 @@
+// 这个模块提供 dashboard 的中英日文案字典和国际化上下文。
 // 国际化模块：定义多语言字典（中文/英文/日文），并提供 I18nProvider 上下文和 useI18n 钩子
 import React from 'react';
 
@@ -36,6 +37,7 @@ const DICTIONARY = {
       'post-tool-use': '执行后',
       'post-tool-use-failure': '执行失败',
       permission: '权限',
+      notification: '通知',
       elicitation: '选择',
       stop: '待回顾',
       'stop-failure': '异常结束',
@@ -140,6 +142,7 @@ const DICTIONARY = {
       'post-tool-use': 'after tool',
       'post-tool-use-failure': 'tool failed',
       permission: 'permission',
+      notification: 'notification',
       elicitation: 'choice',
       stop: 'review',
       'stop-failure': 'failed stop',
@@ -244,6 +247,7 @@ const DICTIONARY = {
       'post-tool-use': '実行後',
       'post-tool-use-failure': '実行失敗',
       permission: '権限',
+      notification: '通知',
       elicitation: '選択',
       stop: 'レビュー待ち',
       'stop-failure': '異常終了',
@@ -323,9 +327,11 @@ const DICTIONARY = {
   },
 };
 
+// 保存当前语言和翻译函数的 React 上下文。
 const I18nContext = React.createContext(null);
 
 // 根据 localStorage 存储值或浏览器语言偏好确定初始语言
+// 根据本地存储和浏览器语言选择初始语言。
 function initialLanguage() {
   const stored = window.localStorage.getItem('claude-hark-language');
   if (DICTIONARY[stored]) return stored;
@@ -336,24 +342,29 @@ function initialLanguage() {
 }
 
 // 按点分隔路径从字典中取值，路径不存在时返回 undefined
+// 在指定语言字典中查找嵌套翻译键。
 function lookup(language, key) {
   return key.split('.').reduce((value, part) => value?.[part], DICTIONARY[language]);
 }
 
 // 将翻译文本中的 {key} 占位符替换为实际参数值
+// 将翻译字符串中的占位符替换为参数值。
 function interpolate(value, params) {
   if (!params) return value;
   return Object.entries(params).reduce((text, [key, replacement]) => text.replaceAll(`{${key}}`, replacement), value);
 }
 
 // 国际化上下文提供者：管理当前语言状态，并向子树暴露翻译函数 t
+// 提供语言状态和翻译函数给 dashboard 组件树。
 export function I18nProvider({ children }) {
   const [language, setLanguageState] = React.useState(initialLanguage);
+  // 保存并切换当前 dashboard 语言。
   const setLanguage = (nextLanguage) => {
     if (!DICTIONARY[nextLanguage]) return;
     window.localStorage.setItem('claude-hark-language', nextLanguage);
     setLanguageState(nextLanguage);
   };
+  // 查找翻译文案并执行参数插值。
   const t = React.useCallback((key, params) => {
     const value = lookup(language, key) ?? lookup('en', key) ?? key;
     return typeof value === 'string' ? interpolate(value, params) : value;
@@ -363,6 +374,7 @@ export function I18nProvider({ children }) {
 }
 
 // 消费 I18n 上下文的自定义钩子，必须在 I18nProvider 内部使用
+// 读取国际化上下文并防止组件脱离 Provider 使用。
 export function useI18n() {
   const context = React.useContext(I18nContext);
   if (!context) throw new Error('useI18n must be used inside I18nProvider');

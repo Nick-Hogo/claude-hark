@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个测试脚本验证会话状态读写、别名和最近动作缓存行为。
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo_root/tests/test_helpers.sh"

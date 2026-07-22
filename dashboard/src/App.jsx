@@ -1,13 +1,16 @@
+// 这个组件负责加载会话状态、计算指标并渲染 dashboard 主界面。
 // 应用根组件：定时拉取会话状态、计算汇总指标，并将数据传递给 KanbanTemplate 渲染
 import { useEffect, useMemo, useState } from 'react';
 import EmptyState from './components/EmptyState.jsx';
 import { KanbanTemplate } from './components/DesignTemplates.jsx';
 
+// 将时间字符串转换为可排序的时间戳。
 function parseTime(value) {
   const time = value ? Date.parse(value) : 0;
   return Number.isFinite(time) ? time : 0;
 }
 
+// 将 state.json 中的 sessions 对象整理成按活跃时间排序的数组。
 function normalizeSessions(state) {
   return Object.entries(state.sessions || {}).map(([sessionId, session]) => {
     const hookEvents = Array.isArray(session.hookEvents) ? session.hookEvents : [];
@@ -25,6 +28,7 @@ function normalizeSessions(state) {
   }).sort((left, right) => right.lastActiveAt - left.lastActiveAt);
 }
 
+// 统计 dashboard 顶部需要展示的会话指标。
 function metricsFor(sessions) {
   const eventCount = sessions.reduce((total, session) => total + session.hookEvents.length, 0);
   const waitingPermissions = sessions.filter((session) => session.latestAction.event === 'permission').length;
@@ -33,6 +37,7 @@ function metricsFor(sessions) {
   return { eventCount, waitingPermissions, waitingChoices, activeSessions };
 }
 
+// 找到最近一次需要用户响应的权限或选择事件。
 function latestGateKey(sessions) {
   return sessions
     .flatMap((session) => session.hookEvents.map((event) => ({ ...event, sessionId: session.sessionId })))
@@ -42,6 +47,7 @@ function latestGateKey(sessions) {
 
 let audioContext;
 
+// 播放任务板中新关卡出现时的提示音。
 function playItemChime() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return;
@@ -69,6 +75,7 @@ function playItemChime() {
   });
 }
 
+// 加载状态、维护声音偏好并渲染当前 dashboard 模板。
 export default function App() {
   const [state, setState] = useState({ sessions: {} });
   const [statePath, setStatePath] = useState('');
@@ -115,6 +122,7 @@ export default function App() {
     setLastSoundKey(nextKey);
   }, [latestGate, lastSoundKey, soundEnabled]);
 
+  // 保存提示音开关并在开启时播放试听音。
   const setSound = (enabled) => {
     window.localStorage.setItem('claude-hark-sound', enabled ? 'on' : 'off');
     setSoundEnabled(enabled);

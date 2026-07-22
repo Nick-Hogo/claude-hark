@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个测试脚本验证 hook 摘要、处理器和通知正文生成行为。
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo_root/tests/test_helpers.sh"
@@ -7,6 +8,7 @@ source "$repo_root/tests/test_helpers.sh"
 py_file="$repo_root/lib/action_summary.py"
 tmp_dir="$(mktemp -d)"
 
+# 调用 Python 摘要脚本并把参数原样转发给对应命令。
 action_summary() {
   python3 "$py_file" "$@"
 }
@@ -26,7 +28,15 @@ cat > "$handler_stub" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 cat > "$CLAUDE_HARK_HANDLER_STUB_INPUT"
-printf '{"title":"LLM权限分析","summary":"运行完整测试套件验证安装改动","purpose":"测试验证","details":["执行 bash tests/run.sh"],"suggestion":"确认是本地测试命令","review":["检查命令范围"],"nextAction":"批准后查看测试结果"}'
+cat <<'OUT'
+标题：LLM权限分析
+摘要：运行完整测试套件验证安装改动
+目的：测试验证
+细节：执行 bash tests/run.sh
+建议：确认是本地测试命令
+审阅点：检查命令范围
+下一步：批准后查看测试结果
+OUT
 SH
 chmod +x "$handler_stub"
 export CLAUDE_HARK_HANDLER_STUB_INPUT="$tmp_dir/handler-input.txt"
@@ -36,15 +46,22 @@ assert_eq '运行完整测试套件验证安装改动' "$(printf '%s' "$handler_
 assert_eq '测试验证' "$(printf '%s' "$handler_json" | jq -r '.display.purpose')"
 assert_eq '批准后查看测试结果' "$(printf '%s' "$handler_json" | jq -r '.display.nextAction')"
 assert_eq 'llm' "$(printf '%s' "$handler_json" | jq -r '.source')"
+assert_eq 'generated' "$(printf '%s' "$handler_json" | jq -r '.llmStatus')"
+assert_eq 'false' "$(printf '%s' "$handler_json" | jq -r '.usedFallback')"
 assert_contains "$(cat "$CLAUDE_HARK_HANDLER_STUB_INPUT")" '<event>permission</event>'
 assert_contains "$(cat "$CLAUDE_HARK_HANDLER_STUB_INPUT")" '<context>'
 assert_contains "$(cat "$CLAUDE_HARK_HANDLER_STUB_INPUT")" 'bash tests/run.sh'
+assert_contains "$(cat "$CLAUDE_HARK_HANDLER_STUB_INPUT")" '标题/摘要/目的/细节/建议/审阅点/下一步'
+assert_eq '执行 bash tests/run.sh' "$(printf '%s' "$handler_json" | jq -r '.display.details[0]')"
+assert_eq '检查命令范围' "$(printf '%s' "$handler_json" | jq -r '.display.review[0]')"
 
 unset CLAUDE_HARK_SUMMARIZER_COMMAND CLAUDE_HARK_HANDLER_STUB_INPUT
 fallback_handler_json="$(action_summary handle-event permission '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"bash tests/run.sh","description":"Run full test suite"},"cwd":"/tmp/app"}' '[]')"
 assert_eq 'fallback' "$(printf '%s' "$fallback_handler_json" | jq -r '.source')"
-assert_eq '需要判断是否批准这次工具权限' "$(printf '%s' "$fallback_handler_json" | jq -r '.summary')"
-assert_eq '权限审批' "$(printf '%s' "$fallback_handler_json" | jq -r '.display.purpose')"
+assert_eq 'unavailable' "$(printf '%s' "$fallback_handler_json" | jq -r '.llmStatus')"
+assert_eq 'true' "$(printf '%s' "$fallback_handler_json" | jq -r '.usedFallback')"
+assert_eq '需要回到 Claude Code 会话判断是否授权' "$(printf '%s' "$fallback_handler_json" | jq -r '.summary')"
+assert_eq '等待人工确认' "$(printf '%s' "$fallback_handler_json" | jq -r '.display.purpose')"
 assert_not_contains "$(printf '%s' "$fallback_handler_json" | jq -r '.summary')" '运行完整测试套件'
 
 redacting_stub="$tmp_dir/redacting-summarizer.sh"
@@ -70,6 +87,8 @@ chmod +x "$failing_stub"
 export CLAUDE_HARK_SUMMARIZER_COMMAND="$failing_stub"
 failing_json="$(action_summary handle-event pre-tool-use '{"session_id":"s1","tool_name":"Edit","tool_input":{"file_path":"/tmp/app/README.md"},"cwd":"/tmp/app"}' '[]')"
 assert_eq 'fallback' "$(printf '%s' "$failing_json" | jq -r '.source')"
+assert_eq 'failed' "$(printf '%s' "$failing_json" | jq -r '.llmStatus')"
+assert_eq 'true' "$(printf '%s' "$failing_json" | jq -r '.usedFallback')"
 assert_eq '需要查看 Claude Code 会话继续处理' "$(printf '%s' "$failing_json" | jq -r '.summary')"
 
 export CLAUDE_HARK_SUMMARIZER_COMMAND="$redacting_stub"
@@ -77,6 +96,8 @@ export CLAUDE_HARK_SUMMARIZING=1
 rm -f "$CLAUDE_HARK_STUB_INPUT"
 guarded_json="$(action_summary handle-event pre-tool-use '{"session_id":"s1","tool_name":"Edit","tool_input":{"file_path":"/tmp/app/README.md"},"cwd":"/tmp/app"}' '[]')"
 assert_eq 'fallback' "$(printf '%s' "$guarded_json" | jq -r '.source')"
+assert_eq 'unavailable' "$(printf '%s' "$guarded_json" | jq -r '.llmStatus')"
+assert_eq 'true' "$(printf '%s' "$guarded_json" | jq -r '.usedFallback')"
 [[ ! -f "$CLAUDE_HARK_STUB_INPUT" ]] || fail 'summarizer guard should prevent external call'
 unset CLAUDE_HARK_SUMMARIZING CLAUDE_HARK_SUMMARIZER_COMMAND CLAUDE_HARK_STUB_INPUT
 

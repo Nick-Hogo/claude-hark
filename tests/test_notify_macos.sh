@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个测试脚本验证 macOS 通知后端的转义和 fallback 行为。
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo_root/tests/test_helpers.sh"

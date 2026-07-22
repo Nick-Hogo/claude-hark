@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个脚本负责安装 Claude-Hark 运行文件并写入 Claude Code hook 配置。
 
 # ---- 安装路径配置 ----
 repo_root="$(cd "$(dirname "$0")" && pwd)"

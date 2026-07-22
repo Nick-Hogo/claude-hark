@@ -1,5 +1,7 @@
+// 这个组件负责按时间顺序展示会话中的 hook 事件序列。
 import EventPill from './EventPill.jsx';
 
+// 按时间顺序渲染事件胶囊列表。
 export default function EventTimeline({ events }) {
   const sortedEvents = [...events].sort((left, right) => Date.parse(left.recordedAt || 0) - Date.parse(right.recordedAt || 0));
 

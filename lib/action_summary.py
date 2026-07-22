@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 这个脚本提供 shell 可调用的 Python CLI，转发 hook 摘要和处理命令。
 # Thin CLI shim used by the shell hooks; keep hook logic in the focused modules.
 import json
 import sys
@@ -11,6 +12,7 @@ from util import json_string_field, redact_sensitive_text, truncate_inline, trun
 
 
 # ---- CLI 适配层：供 shell shim 调用 ----
+# 返回 action_summary.py 支持的 CLI 子命令映射。
 def command_table():
     return {
         "extract-tool-name": lambda args: HookContextExtractor.extract_tool_name(args[0]),
@@ -32,12 +34,14 @@ def command_table():
     }
 
 
+# 输出命令结果并确保以换行结尾。
 def print_result(value):
     print(value, end="")
     if not value.endswith("\n"):
         print()
 
 
+# 解析 CLI 参数并执行对应子命令。
 def main(argv):
     if len(argv) < 2:
         print("usage: action_summary.py <command> [args...]", file=sys.stderr)

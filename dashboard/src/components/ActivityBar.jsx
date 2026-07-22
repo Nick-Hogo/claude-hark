@@ -1,9 +1,12 @@
+// 这个组件负责展示单个会话的事件活跃度条。
 const BAR_COLORS = {
   'pre-tool-use': 'from-cyan-400 via-blue-400 to-cyan-200',
   permission: 'from-amber-400 via-orange-400 to-yellow-200',
+  notification: 'from-yellow-400 via-amber-300 to-yellow-100',
   elicitation: 'from-violet-400 via-fuchsia-400 to-violet-200',
 };
 
+// 渲染与事件数量成比例的活跃度条。
 export default function ActivityBar({ count, max, event }) {
   const width = `${Math.max(4, Math.round((count / Math.max(1, max)) * 100))}%`;
   const color = BAR_COLORS[event] || 'from-slate-500 via-slate-400 to-slate-300';

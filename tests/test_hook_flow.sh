@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 这个测试脚本验证 Claude Code hook 事件到状态和通知的完整流程。
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo_root/tests/test_helpers.sh"
@@ -79,16 +80,18 @@ project_alias="$(basename "$project_dir")"
 permission_write_payload='{"session_id":"session-write-1234","tool_name":"Write","tool_input":{"file_path":"'$project_dir'/config.json"},"cwd":"'$project_dir'"}'
 permission_write_output="$(printf '%s' "$permission_write_payload" | bash "$repo_root/hooks/claude-hark.sh" permission)"
 [[ -s "$CLAUDE_HARK_NOTIFY_STUB" ]] || fail 'write notification not written'
-assert_eq "{\"systemMessage\":\"[$project_alias] 等待权限：Write；目的：需要判断是否批准这次工具权限\"}" "$permission_write_output"
+assert_eq "{\"systemMessage\":\"[$project_alias] 等待权限：Write；目的：需要回到 Claude Code 会话判断是否授权\"}" "$permission_write_output"
 assert_eq 'fallback' "$(jq -r '.sessions["session-write-1234"].latestAction.source' "$project_dir/.claude-hark/state.json")"
 
 export CLAUDE_HARK_SUMMARIZER_COMMAND="$stub"
 notification_permission_payload='{"session_id":"session-notification-1234","notification_type":"permission_prompt","tool_name":"Bash","tool_input":{"command":"npm test"},"cwd":"'$project_dir'","message":"Claude needs permission to run Bash"}'
+notify_size_before="$(wc -c < "$CLAUDE_HARK_NOTIFY_STUB" 2>/dev/null || printf 0)"
 notification_permission_output="$(printf '%s' "$notification_permission_payload" | bash "$repo_root/hooks/claude-hark.sh" notification)"
-[[ -s "$CLAUDE_HARK_NOTIFY_STUB" ]] || fail 'notification permission prompt not written'
-assert_eq "{\"systemMessage\":\"[$project_alias] 等待权限：Bash；目的：准备调整 README 的项目定位说明\"}" "$notification_permission_output"
-assert_eq 'permission' "$(jq -r '.sessions["session-notification-1234"].latestAction.event' "$project_dir/.claude-hark/state.json")"
-assert_eq 'notified' "$(jq -r '.sessions["session-notification-1234"].latestAction.status' "$project_dir/.claude-hark/state.json")"
+notify_size_after="$(wc -c < "$CLAUDE_HARK_NOTIFY_STUB" 2>/dev/null || printf 0)"
+assert_eq '' "$notification_permission_output"
+assert_eq "$notify_size_before" "$notify_size_after"
+assert_eq 'notification' "$(jq -r '.sessions["session-notification-1234"].latestAction.event' "$project_dir/.claude-hark/state.json")"
+assert_eq 'active' "$(jq -r '.sessions["session-notification-1234"].latestAction.status' "$project_dir/.claude-hark/state.json")"
 assert_eq 'llm' "$(jq -r '.sessions["session-notification-1234"].latestAction.source' "$project_dir/.claude-hark/state.json")"
 
 idle_notification_payload='{"session_id":"session-idle-notification","notification_type":"idle_prompt","cwd":"'$project_dir'","message":"Claude is idle"}'
