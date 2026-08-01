@@ -20,11 +20,9 @@ Claude-Hark 不是另一个 Agent 框架，也不是对 Claude Code 的替代层
 
 它做的事情更聚焦：**监听 Claude Code 生命周期里的关键阻塞事件，并把这些事件转成用户可感知、可管理的执行边界提醒。**
 
-在当前版本里，这个“治理执行边界”的切入点主要有三个：
+当前运行时监听 9 类生命周期事件：`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`PermissionRequest`、`Notification(permission_prompt)`、`Elicitation`、`Stop` 和 `StopFailure`。其中 `PermissionRequest` 与 `Elicitation` 构成主动通知的用户介入边界，其余事件用于意图缓存、活动追踪和结束/失败回顾。
 
-- `PreToolUse`：Claude 即将执行关键工具调用，用于提前生成意图摘要
-- `PermissionRequest`：Claude 申请工具权限，用于提醒用户做授权判断
-- `Elicitation`：Claude 需要你做选择或补充信息
+完整事件行为矩阵见 [`docs/spec/current-spec.md`](docs/spec/current-spec.md)。
 
 也就是说，Claude-Hark 当前首先解决的是这类问题：
 
@@ -188,64 +186,10 @@ bash install.sh
 
 安装脚本会完成两件事：
 
-1. 把 hook、CLI、shell 库复制到 `~/.claude-hark`
-2. 把 `PreToolUse`、`PermissionRequest`、`Notification(permission_prompt)` 和 `Elicitation` 的 hook 配置写入 `~/.claude/settings.json`
+1. 把 hook、CLI、shell 库和 Dashboard 复制到 `~/.claude-hark`
+2. 把完整生命周期 hook 配置写入 `~/.claude/settings.json`
 
-安装后的 hook 配置大致如下：
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude-hark/hooks/claude-hark.sh pre-tool-use",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "Edit|Write|Bash|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude-hark/hooks/claude-hark.sh permission",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "matcher": "permission_prompt",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude-hark/hooks/claude-hark.sh notification",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "Elicitation": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude-hark/hooks/claude-hark.sh elicitation",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+Canonical 的 9 类 Hook 配置、matcher 与 timeout 只在 [`docs/configuration.md`](docs/configuration.md) 维护，产品事件语义见 [`docs/spec/current-spec.md`](docs/spec/current-spec.md)。当前 installer 仍会替换同事件的 Hook 数组；“备份并无损合并”已列入后续实施阶段，在完成前请先自行备份 settings。
 
 如果你不想直接运行安装脚本，也可以参考：
 
@@ -311,7 +255,7 @@ claude-hark doctor
 
 ### 3. 打开 Dashboard
 
-Dashboard 会读取当前项目的 `.claude-hark/state.json`，按 session 可视化 hook history。
+Dashboard 是 P1 正式的生命周期回顾与上下文恢复能力；它的失败不应影响 P0 Hook 记录和系统通知。Dashboard 会读取当前项目的 `.claude-hark/state.json`，按 session 可视化 hook history。
 
 首次使用先构建前端：
 
@@ -444,14 +388,15 @@ bash tests/run.sh
 
 因此它目前的边界也很明确：
 
-- **仅支持 macOS**
-- **基于 shell 脚本实现**
+- **macOS 为 Stable；Linux desktop、WSL 与 Native Windows 为 Experimental**
+- **基于 shell 与本地 Python 脚本实现**
 - **通过 Claude Code hooks 接入**
 - **不依赖 MCP、自定义 skill 或外部 LLM 作为运行时前置条件**
 
+完整支持等级和晋级条件见 [`docs/spec/current-spec.md`](docs/spec/current-spec.md)。
+
 当前不包含：
 
-- Windows / Linux 桌面通知支持
 - 云端 alias 同步
 - GUI 配置界面
 - 强制启用的权限意图理解模型

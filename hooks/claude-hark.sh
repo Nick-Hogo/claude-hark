@@ -11,10 +11,9 @@ source "$repo_root/lib/session-state.sh"
 source "$repo_root/lib/notifier.sh"
 action_summary_py="$repo_root/lib/action_summary.py"
 
-# 调用 Python 摘要模块的包装函数。
-# 调用 Python 摘要脚本并把参数原样转发给对应命令。
+# 通过标准输入传递参数，避免大 payload 超出系统参数长度限制。
 action_summary() {
-  python3 "$action_summary_py" "$@"
+  printf '%s\0' "$@" | python3 "$action_summary_py"
 }
 
 # ---- 解析 Claude Code hook payload ----

@@ -4,3 +4,8 @@ __pycache__/
 .claude/
 graphify-out/
 node_modules/
+.pi-subagents/
+gudaspec/
+dashboard/
+
+docs/

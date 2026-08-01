@@ -41,20 +41,32 @@ def print_result(value):
         print()
 
 
+# 从标准输入读取 NUL 分隔参数。
+def stdin_args():
+    data = sys.stdin.buffer.read()
+    if not data:
+        return []
+    values = data.split(b"\0")
+    if values[-1] == b"":
+        values.pop()
+    return [value.decode() for value in values]
+
+
 # 解析 CLI 参数并执行对应子命令。
 def main(argv):
-    if len(argv) < 2:
+    args = argv[1:] or stdin_args()
+    if not args:
         print("usage: action_summary.py <command> [args...]", file=sys.stderr)
         return 2
 
-    command = argv[1]
+    command = args[0]
     commands = command_table()
     if command not in commands:
         print(f"unknown command: {command}", file=sys.stderr)
         return 2
 
     try:
-        print_result(commands[command](argv[2:]))
+        print_result(commands[command](args[1:]))
     except IndexError:
         print(f"missing arguments for command: {command}", file=sys.stderr)
         return 2

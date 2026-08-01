@@ -39,10 +39,17 @@ notify_windows() {
     return
   fi
 
-  if ! "$powershell" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command - "$title" "$body" <<'PS'
-param([string]$Title, [string]$Body)
-
+  # Windows PowerShell 5.1 rejects arguments after `-Command -`. WSLENV safely
+  # carries UTF-8 title/body through WSL interop without interpolating them into PowerShell.
+  if ! CLAUDE_HARK_TOAST_TITLE="$title" CLAUDE_HARK_TOAST_BODY="$body" \
+    WSLENV="${WSLENV:+$WSLENV:}CLAUDE_HARK_TOAST_TITLE:CLAUDE_HARK_TOAST_BODY" \
+    "$powershell" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command - <<'PS'
 $ErrorActionPreference = 'Stop'
+$Title = $env:CLAUDE_HARK_TOAST_TITLE
+$Body = $env:CLAUDE_HARK_TOAST_BODY
+if ([string]::IsNullOrWhiteSpace($Title) -or [string]::IsNullOrWhiteSpace($Body)) {
+  throw 'Claude-Hark toast text propagation failed'
+}
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
 
@@ -63,7 +70,10 @@ $textNodes = $xml.GetElementsByTagName('text')
 $textNodes.Item(0).AppendChild($xml.CreateTextNode($Title)) | Out-Null
 $textNodes.Item(1).AppendChild($xml.CreateTextNode($Body)) | Out-Null
 $notification = [Windows.UI.Notifications.ToastNotification]::new($xml)
-$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Claude-Hark')
+# Use Windows' existing registered PowerShell AppID. This avoids requiring users
+# to install a shortcut, edit the registry, or run a Windows-side setup step.
+$appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId)
 $notifier.Show($notification)
 PS
   then

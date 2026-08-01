@@ -75,7 +75,7 @@ class HookContextExtractor:
             target=target,
             file_path=file_path or None,
             file_name=basename(file_path) if file_path else None,
-            command=command_text or None,
+            command=truncate_text(command_text, 2000) if command_text else None,
             command_preview=truncate_inline(command_text, 120) if command_text else None,
             pattern=truncate_inline(pattern, 120) if pattern else None,
             path=path or None,

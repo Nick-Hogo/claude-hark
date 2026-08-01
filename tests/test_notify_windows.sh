@@ -19,13 +19,19 @@ mkdir -p "$fake_bin"
 cat > "$fake_bin/powershell.exe" <<'SH'
 #!/usr/bin/env bash
 printf 'powershell:%s\n' "$*" >> "$CLAUDE_HARK_FAKE_NOTIFY_LOG"
+printf 'title:%s\nbody:%s\nwsl-env:%s\n' "$CLAUDE_HARK_TOAST_TITLE" "$CLAUDE_HARK_TOAST_BODY" "${WSLENV:-}" >> "$CLAUDE_HARK_FAKE_NOTIFY_LOG"
 script="$(cat)"
 printf 'script:%s\n' "$script" >> "$CLAUDE_HARK_FAKE_NOTIFY_LOG"
 SH
 chmod +x "$fake_bin/powershell.exe"
 CLAUDE_HARK_FAKE_NOTIFY_LOG="$tmp_dir/backend.log" PATH="$fake_bin:$PATH" notify_windows 'Claude Code' 'toast body'
-assert_contains "$(cat "$tmp_dir/backend.log")" 'powershell:-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command - Claude Code toast body'
-assert_contains "$(cat "$tmp_dir/backend.log")" "CreateToastNotifier('Claude-Hark')"
+backend_log="$(cat "$tmp_dir/backend.log")"
+assert_contains "$backend_log" 'powershell:-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command -'
+assert_not_contains "$backend_log" '-Command - Claude Code toast body'
+assert_contains "$backend_log" 'title:Claude Code'
+assert_contains "$backend_log" 'body:toast body'
+assert_contains "$backend_log" 'CLAUDE_HARK_TOAST_TITLE:CLAUDE_HARK_TOAST_BODY'
+assert_contains "$backend_log" "WindowsPowerShell\\v1.0\\powershell.exe'"
 
 cat > "$fake_bin/powershell.exe" <<'SH'
 #!/usr/bin/env bash

@@ -7,6 +7,14 @@ notifier_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$notifier_dir/notify-macos.sh"
 source "$notifier_dir/notify-windows.sh"
 
+# ---- 平台检测 ----
+# WSL 不保证设置 OS=Windows_NT，因此同时检查官方环境变量和内核标识。
+is_wsl() {
+  [[ -n "${WSL_INTEROP:-}" ]] ||
+    [[ -n "${WSL_DISTRO_NAME:-}" ]] ||
+    grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null
+}
+
 # ---- 统一通知入口 ----
 # 向用户发送通知，优先使用测试 stub 再选择系统后端。
 notify_user() {
@@ -25,7 +33,7 @@ notify_user() {
       notify_macos "$title" "$body"
       ;;
     Linux)
-      if [[ "${OS:-}" == "Windows_NT" ]]; then
+      if is_wsl || [[ "${OS:-}" == "Windows_NT" ]]; then
         notify_windows "$title" "$body"
       elif command -v notify-send >/dev/null 2>&1; then
         notify-send "$title" "$body"

@@ -53,6 +53,29 @@ assert_eq 'ai' "$(jq -r '.sessions["session-edit-1234"].alias.source' "$project_
 assert_eq 'Updating README content for the current task.' "$(jq -r '.sessions["session-edit-1234"].description.value' "$project_dir/.claude-hark/state.json")"
 assert_contains "$(cat "$CLAUDE_HARK_NAMER_CALLED")" '"target": "README.md"'
 
+large_payload_file="$project_dir/large-payload.json"
+PROJECT_DIR="$project_dir" python3 - <<'PY' > "$large_payload_file"
+import json
+import os
+
+project_dir = os.environ["PROJECT_DIR"]
+payload = {
+    "session_id": "session-large-payload",
+    "tool_name": "Bash",
+    "tool_input": {"command": "printf '%s' " + "x" * 140000},
+    "cwd": project_dir,
+}
+print(json.dumps(payload, separators=(",", ":")), end="")
+PY
+[[ "$(wc -c < "$large_payload_file")" -gt 131072 ]] || fail 'large payload should exceed Linux MAX_ARG_STRLEN'
+rm -f "$CLAUDE_HARK_NAMER_CALLED"
+large_pre_tool_output="$(bash "$repo_root/hooks/claude-hark.sh" pre-tool-use < "$large_payload_file")"
+assert_eq '' "$large_pre_tool_output"
+assert_eq 'Bash' "$(jq -r '.sessions["session-large-payload"].latestAction.toolName' "$project_dir/.claude-hark/state.json")"
+assert_eq 'pre-tool-use' "$(jq -r '.sessions["session-large-payload"].latestAction.event' "$project_dir/.claude-hark/state.json")"
+assert_eq 'readme-session' "$(jq -r '.sessions["session-large-payload"].alias.value' "$project_dir/.claude-hark/state.json")"
+[[ -s "$CLAUDE_HARK_NAMER_CALLED" ]] || fail 'large payload namer input not captured'
+
 permission_edit_payload='{"session_id":"session-edit-1234","tool_name":"Edit","tool_input":{"file_path":"'$project_dir'/README.md"},"cwd":"'$project_dir'"}'
 permission_edit_output="$(printf '%s' "$permission_edit_payload" | bash "$repo_root/hooks/claude-hark.sh" permission)"
 project_alias='readme-session'
