@@ -54,22 +54,36 @@ assert_contains "$(cat "$CLAUDE_HARK_HANDLER_STUB_INPUT")" 'bash tests/run.sh'
 assert_contains "$(cat "$CLAUDE_HARK_HANDLER_STUB_INPUT")" '标题/摘要/目的/细节/建议/审阅点/下一步'
 assert_eq '执行 bash tests/run.sh' "$(printf '%s' "$handler_json" | jq -r '.display.details[0]')"
 assert_eq '检查命令范围' "$(printf '%s' "$handler_json" | jq -r '.display.review[0]')"
+assert_eq 'null' "$(printf '%s' "$handler_json" | jq -r '.display.intent')"
+assert_eq 'unknown' "$(printf '%s' "$handler_json" | jq -r '.display.intentConfidence')"
+assert_contains "$(printf '%s' "$handler_json" | jq -r '.notificationBody')" '意图：当前上下文不足，无法确定'
+assert_contains "$(printf '%s' "$handler_json" | jq -r '.notificationBody')" '操作：bash tests/run.sh'
 
 unset CLAUDE_HARK_SUMMARIZER_COMMAND CLAUDE_HARK_HANDLER_STUB_INPUT
-fallback_handler_json="$(action_summary handle-event permission '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"bash tests/run.sh","description":"Run full test suite"},"cwd":"/tmp/app"}' '[]')"
+fallback_cwd="$tmp_dir/fallback-project"
+mkdir -p "$fallback_cwd"
+fallback_handler_json="$(action_summary handle-event permission '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"bash tests/run.sh","description":"Run full test suite"},"cwd":"'$fallback_cwd'"}' '[]')"
 assert_eq 'fallback' "$(printf '%s' "$fallback_handler_json" | jq -r '.source')"
 assert_eq 'unavailable' "$(printf '%s' "$fallback_handler_json" | jq -r '.llmStatus')"
 assert_eq 'true' "$(printf '%s' "$fallback_handler_json" | jq -r '.usedFallback')"
 assert_eq '需要回到 Claude Code 会话判断是否授权' "$(printf '%s' "$fallback_handler_json" | jq -r '.summary')"
 assert_eq '等待人工确认' "$(printf '%s' "$fallback_handler_json" | jq -r '.display.purpose')"
 assert_not_contains "$(printf '%s' "$fallback_handler_json" | jq -r '.summary')" '运行完整测试套件'
+[[ -f "$fallback_cwd/.claude-hark/logs.txt" ]] || fail 'unavailable LLM status should create project debug log'
+unavailable_log="$(cat "$fallback_cwd/.claude-hark/logs.txt")"
+assert_contains "$unavailable_log" 'level=WARN component=llm status=unavailable'
+assert_contains "$unavailable_log" 'reason=summarizer_command_missing'
+assert_contains "$unavailable_log" 'event=permission'
+assert_contains "$unavailable_log" 'model_configured=no key_configured=no command_configured=no'
+assert_contains "$unavailable_log" 'hint=restart_claude_after_loading_config'
+assert_not_contains "$unavailable_log" 'Run full test suite'
 
 redacting_stub="$tmp_dir/redacting-summarizer.sh"
 cat > "$redacting_stub" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 cat > "$CLAUDE_HARK_STUB_INPUT"
-printf '{"title":"密钥检查","summary":"处理 api_key=abc123 和 password=secret-value","purpose":"审阅敏感输入","details":["token=secret-value"],"suggestion":"确认脱敏结果","review":["api_key=abc123"],"nextAction":"检查 password=secret-value"}'
+printf '{"title":"密钥检查","summary":"处理 api_key=abc123 和 password=secret-value","intent":"验证 token=secret-value 不会泄漏","intentConfidence":"high","purpose":"审阅敏感输入","details":["token=secret-value"],"suggestion":"确认脱敏结果","review":["api_key=abc123"],"nextAction":"检查 password=secret-value"}'
 SH
 chmod +x "$redacting_stub"
 export CLAUDE_HARK_STUB_INPUT="$tmp_dir/redacting-input.txt"
@@ -80,6 +94,32 @@ assert_not_contains "$redacted_json" 'abc123'
 assert_not_contains "$redacted_json" 'secret-value'
 assert_contains "$(cat "$CLAUDE_HARK_STUB_INPUT")" '"contains_redacted": true'
 assert_not_contains "$(cat "$CLAUDE_HARK_STUB_INPUT")" 'abc123'
+assert_not_contains "$redacted_json" 'secret-value'
+
+# Transcript context contributes only bounded user/assistant text and excludes tool results/thinking.
+transcript="$tmp_dir/session.jsonl"
+cat > "$transcript" <<'JSONL'
+{"type":"user","message":{"role":"user","content":"修复 WSL 中文通知"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"private reasoning"},{"type":"text","text":"接下来运行测试，确认通知修复没有破坏 Hook"},{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":"bash tests/run.sh"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"large secret output"}]}}
+JSONL
+transcript_stub="$tmp_dir/transcript-summarizer.sh"
+cat > "$transcript_stub" <<'SH'
+#!/usr/bin/env bash
+input="$(cat)"
+printf '%s' "$input" > "$CLAUDE_HARK_TRANSCRIPT_INPUT"
+printf '{"summary":"申请运行测试","intent":"验证 WSL 通知修复未破坏现有 Hook","intentConfidence":"high","purpose":"测试验证"}'
+SH
+chmod +x "$transcript_stub"
+export CLAUDE_HARK_SUMMARIZER_COMMAND="$transcript_stub"
+export CLAUDE_HARK_TRANSCRIPT_INPUT="$tmp_dir/transcript-input.txt"
+transcript_json="$(action_summary handle-event permission '{"session_id":"s1","transcript_path":"'$transcript'","tool_use_id":"tool-1","tool_name":"Bash","tool_input":{"command":"bash tests/run.sh"}}' '[]')"
+assert_eq '验证 WSL 通知修复未破坏现有 Hook' "$(printf '%s' "$transcript_json" | jq -r '.display.intent')"
+assert_contains "$(cat "$CLAUDE_HARK_TRANSCRIPT_INPUT")" '修复 WSL 中文通知'
+assert_contains "$(cat "$CLAUDE_HARK_TRANSCRIPT_INPUT")" '接下来运行测试'
+assert_not_contains "$(cat "$CLAUDE_HARK_TRANSCRIPT_INPUT")" 'private reasoning'
+assert_not_contains "$(cat "$CLAUDE_HARK_TRANSCRIPT_INPUT")" 'large secret output'
+unset CLAUDE_HARK_TRANSCRIPT_INPUT
 
 failing_stub="$tmp_dir/failing.sh"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$failing_stub"

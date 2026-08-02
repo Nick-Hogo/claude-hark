@@ -1,11 +1,14 @@
 # 这个模块定义各类 hook 事件的分析、展示和通知处理器。
 # 每个 hook handler 负责自己的分析提示词、状态、降级文案和通知输出。
+import datetime
 import json
 import os
 import re
+from pathlib import Path
 
 from hook_context import HookContextExtractor, context_json
 from llm_provider import LLMSummaryProvider
+from transcript_context import extract_transcript_context
 from util import lines, load_json, redact_sensitive_text, summary_max_chars, truncate_text
 
 
@@ -28,12 +31,52 @@ class BaseHookHandler:
             self.payload = {}
         self.tool_name = HookContextExtractor.extract_tool_name(payload_json)
         self.tool_input_json = HookContextExtractor.extract_tool_input_json(payload_json)
-        self.payload_message = self.payload.get("message", "") if isinstance(self.payload.get("message", ""), str) else ""
+        message_candidates = ("message", "prompt", "question")
+        self.payload_message = next(
+            (self.payload[key] for key in message_candidates if isinstance(self.payload.get(key), str) and self.payload[key].strip()),
+            "",
+        )
+        self.conversation = extract_transcript_context(
+            self.payload.get("transcript_path", ""), self.payload.get("tool_use_id", "")
+        )
         history = load_json(history_json or "[]", [])
         self.history = history if isinstance(history, list) else []
         self.env = env or os.environ
         self.context = HookContextExtractor.extract(event_kind, self.tool_name, self.tool_input_json)
         self.llm = LLMSummaryProvider(self.env)
+
+    # 在项目本地记录 LLM 不可用的最小诊断信息；不记录 prompt、payload 或 API Key。
+    def log_llm_unavailable(self):
+        command_configured = bool(self.env.get("CLAUDE_HARK_SUMMARIZER_COMMAND"))
+        recursion_guard = self.env.get("CLAUDE_HARK_SUMMARIZING") == "1"
+        if recursion_guard:
+            reason = "recursion_guard_active"
+        elif not command_configured:
+            reason = "summarizer_command_missing"
+        else:
+            reason = "unknown"
+
+        cwd = self.payload.get("cwd")
+        if not isinstance(cwd, str) or not cwd or not os.path.isdir(cwd):
+            cwd = os.getcwd()
+        home = self.env.get("CLAUDE_HARK_HOME") or os.path.join(cwd, ".claude-hark")
+        log_path = Path(home) / "logs.txt"
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fields = (
+            f"{timestamp} level=WARN component=llm status=unavailable reason={reason} "
+            f"event={self.event_kind} provider={self.env.get('CLAUDE_HARK_LLM_PROVIDER') or 'unset'} "
+            f"model_configured={'yes' if self.env.get('CLAUDE_HARK_LLM_MODEL') else 'no'} "
+            f"key_configured={'yes' if self.env.get('CLAUDE_HARK_LLM_API_KEY') else 'no'} "
+            f"command_configured={'yes' if command_configured else 'no'} "
+            "hint=restart_claude_after_loading_config\n"
+        )
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(fields)
+        except OSError:
+            # Diagnostics must never break the hook or notification fallback.
+            pass
 
     # 返回当前处理器希望 LLM 分析的目标。
     def prompt_goal(self):
@@ -61,10 +104,24 @@ class BaseHookHandler:
     def fallback_review(self):
         return ["查看 Claude Code 展示的完整请求", "确认操作范围和影响后再继续"]
 
-    # 截取最近 hook 历史并脱敏后放入分析上下文。
+    # 只保留当前任务边界内与意图推断相关的紧凑历史，避免旧 prompt/display 干扰分析。
     def history_context(self):
-        recent = self.history[-8:]
-        return redact_sensitive_text(truncate_text(json.dumps(recent, ensure_ascii=False, indent=2), 2500))
+        boundary = 0
+        for index, item in enumerate(self.history):
+            if isinstance(item, dict) and item.get("event") == "user-prompt-submit":
+                boundary = index
+        compact = []
+        for item in self.history[boundary:][-8:]:
+            if not isinstance(item, dict):
+                continue
+            compact.append(
+                {
+                    key: item[key]
+                    for key in ("event", "toolName", "target", "summary", "purpose", "status")
+                    if item.get(key) not in (None, "")
+                }
+            )
+        return redact_sensitive_text(truncate_text(json.dumps(compact, ensure_ascii=False, indent=2), 2500))
 
     # 组装发送给外部摘要器的 hook 分析提示词。
     def build_analysis_prompt(self):
@@ -79,14 +136,19 @@ class BaseHookHandler:
             "<payload_message>",
             redact_sensitive_text(truncate_text(self.payload_message, 800)),
             "</payload_message>",
+            "<conversation_context>",
+            redact_sensitive_text(json.dumps(self.conversation, ensure_ascii=False, indent=2)),
+            "</conversation_context>",
             "<recent_history>",
             self.history_context(),
             "</recent_history>",
             "",
             self.prompt_goal(),
             "只输出 JSON，不要 markdown，不要代码块。schema:",
-            '{"title":"短标题","summary":"短摘要","purpose":"短目的","details":["关键细节"],"suggestion":"一句建议","review":["审阅点"],"nextAction":"下一步"}',
-            "输出要精简高信息密度：短句、少形容词、不写客套话、不写过程解释。summary 不超过 32 个中文字符，purpose 不超过 10 个中文字符，details/review 各 2-3 条。",
+            '{"title":"短标题","summary":"短摘要","intent":"操作的直接意图或 null","intentConfidence":"high|medium|low|unknown","purpose":"短目的","details":["关键细节"],"suggestion":"一句建议","review":["审阅点"],"nextAction":"下一步","risk":"明确风险或 null"}',
+            "intent 必须回答执行当前操作是为了得到什么结果。结合当前操作、当前轮用户目标、工具调用前说明和最近历史推断。",
+            "不要用“执行脚本、运行命令、推进任务、等待人工确认”等对操作的复述或空泛措辞冒充意图；证据不足时 intent 必须为 null、intentConfidence 为 unknown。",
+            "命令、文件、工具名是事实，不得改写或虚构。输出要精简高信息密度：短句、少形容词、不写客套话或过程解释。summary/intent 各不超过 48 个中文字符。",
             "不要批准或拒绝权限，不要泄露密钥。所有字段使用简洁中文。",
         )
 
@@ -146,6 +208,7 @@ class BaseHookHandler:
     # 调用外部摘要器并返回解析结果、实际提示词和 LLM 状态。
     def run_llm(self):
         if not self.llm.available():
+            self.log_llm_unavailable()
             return None, self.build_analysis_prompt(), "unavailable"
         prompt = self.build_analysis_prompt()
         raw = self.llm.run(prompt)
@@ -167,6 +230,11 @@ class BaseHookHandler:
         source = self.llm.source() if analysis else "fallback"
         used_fallback = not bool(analysis)
         summary = truncate_text(redact_sensitive_text(str((analysis or {}).get("summary") or self.fallback_summary())), summary_max_chars())
+        raw_intent = (analysis or {}).get("intent")
+        intent = truncate_text(redact_sensitive_text(str(raw_intent)), 96) if isinstance(raw_intent, str) and raw_intent.strip() else ""
+        intent_confidence = (analysis or {}).get("intentConfidence", "unknown")
+        if intent_confidence not in ("high", "medium", "low", "unknown"):
+            intent_confidence = "unknown"
         purpose = truncate_text(redact_sensitive_text(str((analysis or {}).get("purpose") or self.fallback_purpose())), 80)
         title = truncate_text(redact_sensitive_text(str((analysis or {}).get("title") or f"{self.title_prefix}：{self.context.target}")), 100)
         suggestion = truncate_text(redact_sensitive_text(str((analysis or {}).get("suggestion") or self.fallback_suggestion())), 160)
@@ -179,6 +247,8 @@ class BaseHookHandler:
             "actionLabel": self.context.target,
             "title": title,
             "summary": summary,
+            "intent": intent or None,
+            "intentConfidence": intent_confidence if intent else "unknown",
             "purpose": purpose,
             "details": details,
             "suggestion": suggestion,
@@ -210,19 +280,23 @@ class BaseHookHandler:
     def result(self):
         analysis, ai_input, llm_status = self.run_llm()
         display = self.display_from_analysis(analysis, ai_input, llm_status)
+        notification_title = self.notification_title(display)
+        notification_body = self.notification_body(display)
+        if notification_body:
+            display["renderedBody"] = notification_body
         return {
             "event": self.event_kind,
             "toolName": self.tool_name,
             "target": self.context.target,
             "summary": display["summary"],
-            "purpose": ai_input,
+            "purpose": display["purpose"],
             "source": display["source"],
             "llmStatus": display["llmStatus"],
             "usedFallback": display["usedFallback"],
             "status": self.status,
             "display": display,
-            "notificationTitle": self.notification_title(display),
-            "notificationBody": self.notification_body(display),
+            "notificationTitle": notification_title,
+            "notificationBody": notification_body,
             "systemMessage": self.system_message(display),
         }
 
@@ -364,11 +438,12 @@ class PermissionRequestHandler(BaseHookHandler):
 
     # 返回当前事件的系统通知标题。
     def notification_title(self, display):
-        return display["title"]
+        return f"等待授权 · {self.tool_name}"
 
-    # 返回当前事件的系统通知正文。
+    # 返回当前事件的系统通知正文：意图解释原因，操作保持 payload 事实。
     def notification_body(self, display):
-        return display.get("renderedBody") or display["body"]
+        intent = display.get("intent") or "当前上下文不足，无法确定"
+        return lines(f"意图：{intent}", f"操作：{self.context.target}")
 
     # 返回写给 Claude Code 的系统提示信息。
     def system_message(self, display):
@@ -404,11 +479,13 @@ class ElicitationHandler(BaseHookHandler):
 
     # 返回当前事件的系统通知标题。
     def notification_title(self, display):
-        return display["title"]
+        return "等待选择或输入"
 
     # 返回当前事件的系统通知正文。
     def notification_body(self, display):
-        return display["body"]
+        intent = display.get("intent") or "当前上下文不足，无法确定"
+        request = self.payload_message or "具体问题未随 Hook 提供"
+        return lines(f"意图：{intent}", f"需要：{truncate_text(redact_sensitive_text(request), 120)}")
 
     # 返回写给 Claude Code 的系统提示信息。
     def system_message(self, display):

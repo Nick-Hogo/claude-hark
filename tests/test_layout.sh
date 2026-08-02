@@ -15,6 +15,7 @@ required_paths=(
   "$repo_root/lib/action_summary.py"
   "$repo_root/lib/hook_context.py"
   "$repo_root/lib/hook_handlers.py"
+  "$repo_root/lib/transcript_context.py"
   "$repo_root/lib/llm_provider.py"
   "$repo_root/lib/session_namer.py"
   "$repo_root/lib/util.py"

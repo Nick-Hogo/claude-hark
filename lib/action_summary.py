@@ -24,7 +24,6 @@ def command_table():
         "action-target": lambda args: HookContextExtractor.extract("permission", args[0], args[1]).target or args[0],
         "handle-event": lambda args: handle_event(args[0], args[1], args[2] if len(args) > 2 else "[]"),
         "redact-sensitive-text": lambda args: redact_sensitive_text(args[0]),
-        "sanitize-action-payload": lambda args: LLMSummaryProvider.sanitize_payload(args[0], args[1], args[2]),
         "normalize-action-summary": lambda args: LLMSummaryProvider.normalize(args[0]),
         "action-summary-source": lambda args: LLMSummaryProvider().source(),
         "session-namer-available": lambda args: "configured" if SessionNamer().available() else "disabled",

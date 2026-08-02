@@ -15,9 +15,9 @@ cat > "$stub" <<'SH'
 set -euo pipefail
 input="$(cat)"
 if printf '%s' "$input" | grep -q '<event>permission</event>'; then
-  printf '{"title":"LLM权限分析","summary":"准备调整 README 的项目定位说明","purpose":"权限审批","details":["检查 README.md 的编辑权限"],"suggestion":"确认 diff 后再授权","review":["目标文件是否正确"],"nextAction":"批准后查看修改结果"}'
+  printf '{"title":"LLM权限分析","summary":"准备调整 README 的项目定位说明","intent":"让 README 项目定位与当前产品定义一致","intentConfidence":"high","purpose":"权限审批","details":["检查 README.md 的编辑权限"],"suggestion":"确认 diff 后再授权","review":["目标文件是否正确"],"nextAction":"批准后查看修改结果"}'
 elif printf '%s' "$input" | grep -q '<event>elicitation</event>'; then
-  printf '{"title":"等待用户选择","summary":"请选择下一步通知样式","purpose":"用户决策","details":["需要用户补充选择"],"suggestion":"回到 Claude 会话选择","review":["确认选项影响"],"nextAction":"选择一个通知样式"}'
+  printf '{"title":"等待用户选择","summary":"请选择下一步通知样式","intent":"确定后续通知的信息密度","intentConfidence":"high","purpose":"用户决策","details":["需要用户补充选择"],"suggestion":"回到 Claude 会话选择","review":["确认选项影响"],"nextAction":"选择一个通知样式"}'
 elif printf '%s' "$input" | grep -q '<event>stop</event>'; then
   printf '{"title":"本轮完成","summary":"本轮已完成 hook 流程记录","purpose":"等待下一步指示","details":["最近事件已写入状态"],"suggestion":"查看 dashboard 卡片","review":["确认结果是否符合预期"],"nextAction":"继续给出下一步"}'
 else
@@ -47,7 +47,7 @@ assert_eq 'pre-tool-use' "$(jq -r '.sessions["session-edit-1234"].hookEvents[0].
 assert_eq 'active' "$(jq -r '.sessions["session-edit-1234"].latestAction.status' "$project_dir/.claude-hark/state.json")"
 assert_eq 'active' "$(jq -r '.sessions["session-edit-1234"].hookEvents[0].status' "$project_dir/.claude-hark/state.json")"
 assert_eq 'pre-tool-use' "$(jq -r '.sessions["session-edit-1234"].hookEvents[0].display.kind' "$project_dir/.claude-hark/state.json")"
-assert_contains "$(jq -r '.sessions["session-edit-1234"].hookEvents[0].purpose' "$project_dir/.claude-hark/state.json")" '<event>pre-tool-use</event>'
+assert_eq '推进当前任务' "$(jq -r '.sessions["session-edit-1234"].hookEvents[0].purpose' "$project_dir/.claude-hark/state.json")"
 assert_eq 'readme-session' "$(jq -r '.sessions["session-edit-1234"].alias.value' "$project_dir/.claude-hark/state.json")"
 assert_eq 'ai' "$(jq -r '.sessions["session-edit-1234"].alias.source' "$project_dir/.claude-hark/state.json")"
 assert_eq 'Updating README content for the current task.' "$(jq -r '.sessions["session-edit-1234"].description.value' "$project_dir/.claude-hark/state.json")"
@@ -84,7 +84,9 @@ assert_eq "{\"systemMessage\":\"[$project_alias] 等待权限：Edit；目的：
 assert_eq '2' "$(jq -r '.sessions["session-edit-1234"].hookEvents | length' "$project_dir/.claude-hark/state.json")"
 assert_eq 'permission' "$(jq -r '.sessions["session-edit-1234"].hookEvents[1].event' "$project_dir/.claude-hark/state.json")"
 assert_eq '准备调整 README 的项目定位说明' "$(jq -r '.sessions["session-edit-1234"].hookEvents[1].summary' "$project_dir/.claude-hark/state.json")"
-assert_contains "$(jq -r '.sessions["session-edit-1234"].hookEvents[1].purpose' "$project_dir/.claude-hark/state.json")" '<event>permission</event>'
+assert_eq '权限审批' "$(jq -r '.sessions["session-edit-1234"].hookEvents[1].purpose' "$project_dir/.claude-hark/state.json")"
+assert_contains "$(cat "$CLAUDE_HARK_NOTIFY_STUB")" "[$project_alias] 等待授权 · Edit|意图：让 README 项目定位与当前产品定义一致"
+assert_contains "$(cat "$CLAUDE_HARK_NOTIFY_STUB")" '操作：README.md'
 assert_eq 'notified' "$(jq -r '.sessions["session-edit-1234"].hookEvents[1].status' "$project_dir/.claude-hark/state.json")"
 assert_eq 'permission' "$(jq -r '.sessions["session-edit-1234"].latestAction.display.kind' "$project_dir/.claude-hark/state.json")"
 assert_contains "$(jq -r '.sessions["session-edit-1234"].latestAction.display.aiInput' "$project_dir/.claude-hark/state.json")" '<event>permission</event>'
@@ -126,7 +128,9 @@ elicitation_output="$(printf '%s' "$elicitation_payload" | bash "$repo_root/hook
 [[ -s "$CLAUDE_HARK_NOTIFY_STUB" ]] || fail 'elicitation notification not written'
 assert_eq "{\"systemMessage\":\"[$project_alias] 等待你的选择；目的：请选择下一步通知样式\"}" "$elicitation_output"
 assert_eq 'elicitation' "$(jq -r '.sessions["session-elicitation"].latestAction.display.kind' "$project_dir/.claude-hark/state.json")"
-assert_contains "$(jq -r '.sessions["session-elicitation"].hookEvents[0].purpose' "$project_dir/.claude-hark/state.json")" '<event>elicitation</event>'
+assert_eq '用户决策' "$(jq -r '.sessions["session-elicitation"].hookEvents[0].purpose' "$project_dir/.claude-hark/state.json")"
+assert_contains "$(cat "$CLAUDE_HARK_NOTIFY_STUB")" "[$project_alias] 等待选择或输入|意图：确定后续通知的信息密度"
+assert_contains "$(cat "$CLAUDE_HARK_NOTIFY_STUB")" '需要：具体问题未随 Hook 提供'
 
 elicitation_message_payload='{"session_id":"session-elicitation-message","cwd":"'$project_dir'","message":"请选择下一步通知样式"}'
 elicitation_message_output="$(printf '%s' "$elicitation_message_payload" | bash "$repo_root/hooks/claude-hark.sh" elicitation)"

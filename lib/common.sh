@@ -8,6 +8,38 @@ project_root() {
   cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
 }
 
+# 返回 Claude-Hark 自己的 JSON 配置路径。
+hark_settings_path() {
+  printf '%s\n' "${CLAUDE_HARK_APP_SETTINGS_PATH:-$(project_root)/settings.json}"
+}
+
+# 每次运行时读取 JSON 配置，不依赖 shell profile 传播环境变量。
+load_hark_settings() {
+  local path provider base_url model api_key timeout enabled
+  path="$(hark_settings_path)"
+  [[ -f "$path" ]] || return 0
+  jq -e 'type == "object" and (.llm | type == "object")' "$path" >/dev/null 2>&1 || {
+    printf 'Claude-Hark: invalid settings JSON: %s\n' "$path" >&2
+    return 0
+  }
+  enabled="$(jq -r '.llm.enabled // false' "$path")"
+  provider="$(jq -r '.llm.provider // "openai"' "$path")"
+  base_url="$(jq -r '.llm.baseUrl // ""' "$path")"
+  model="$(jq -r '.llm.model // ""' "$path")"
+  api_key="$(jq -r '.llm.apiKey // ""' "$path")"
+  timeout="$(jq -r '.llm.timeoutSeconds // 3' "$path")"
+  export CLAUDE_HARK_LLM_PROVIDER="$provider"
+  export CLAUDE_HARK_LLM_URL="$base_url"
+  export CLAUDE_HARK_LLM_MODEL="$model"
+  export CLAUDE_HARK_LLM_API_KEY="$api_key"
+  export CLAUDE_HARK_SUMMARIZER_TIMEOUT="$timeout"
+  if [[ "$enabled" == "true" && -n "$model" && -n "$api_key" ]]; then
+    export CLAUDE_HARK_SUMMARIZER_COMMAND="$(project_root)/bin/claude-hark-summarize"
+  else
+    unset CLAUDE_HARK_SUMMARIZER_COMMAND
+  fi
+}
+
 # 确保目标目录存在，避免后续写文件失败。
 ensure_dir() {
   mkdir -p "$1"

@@ -8,4 +8,7 @@ node_modules/
 gudaspec/
 dashboard/
 
-docs/
+docs/*
+!docs/spec/
+docs/spec/*
+!docs/spec/current-spec.md

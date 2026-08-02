@@ -5,6 +5,7 @@ set -euo pipefail
 # ---- 模块加载 ----
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo_root/lib/common.sh"
+load_hark_settings
 source "$repo_root/lib/session-state.sh"
 action_summary_py="$repo_root/lib/action_summary.py"
 

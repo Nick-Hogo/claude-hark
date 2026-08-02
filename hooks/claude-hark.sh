@@ -7,6 +7,7 @@ set -euo pipefail
 # ---- 模块加载 ----
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$repo_root/lib/common.sh"
+load_hark_settings
 source "$repo_root/lib/session-state.sh"
 source "$repo_root/lib/notifier.sh"
 action_summary_py="$repo_root/lib/action_summary.py"
@@ -47,7 +48,11 @@ record_handler_event() {
   notification_body="$(printf '%s' "$result_json" | jq -r '.notificationBody // ""')"
   if [[ -n "$notification_body" ]]; then
     notification_title="$(printf '%s' "$result_json" | jq -r '.notificationTitle // ""')"
-    notify_user "${notification_title:-${alias_value} · ${now_value}}" "$notification_body"
+    if [[ -n "$notification_title" ]]; then
+      notify_user "[${alias_value}] ${notification_title}" "$notification_body"
+    else
+      notify_user "${alias_value} · ${now_value}" "$notification_body"
+    fi
   fi
 
   system_message="$(printf '%s' "$result_json" | jq -r '.systemMessage // ""')"

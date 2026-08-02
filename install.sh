@@ -7,11 +7,14 @@ repo_root="$(cd "$(dirname "$0")" && pwd)"
 install_root="${CLAUDE_HARK_INSTALL_ROOT:-$HOME/.claude-hark}"
 settings_path="${CLAUDE_HARK_SETTINGS_PATH:-$HOME/.claude/settings.json}"
 shell_profile="${CLAUDE_HARK_SHELL_PROFILE:-}"
+app_settings_path="${CLAUDE_HARK_APP_SETTINGS_PATH:-$install_root/settings.json}"
+legacy_config_path="${CLAUDE_HARK_LEGACY_CONFIG_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-hark/env}"
 
 # ---- 复制运行文件 ----
 mkdir -p "$install_root/hooks" "$install_root/bin" "$install_root/lib"
 cp "$repo_root/hooks/claude-hark.sh" "$install_root/hooks/claude-hark.sh"
 cp "$repo_root/bin/claude-hark" "$install_root/bin/claude-hark"
+cp "$repo_root/bin/claude-hark-summarize" "$install_root/bin/claude-hark-summarize"
 cp "$repo_root/lib/common.sh" "$install_root/lib/common.sh"
 cp "$repo_root/lib/session-state.sh" "$install_root/lib/session-state.sh"
 cp "$repo_root/lib/notifier.sh" "$install_root/lib/notifier.sh"
@@ -20,12 +23,35 @@ cp "$repo_root/lib/notify-windows.sh" "$install_root/lib/notify-windows.sh"
 cp "$repo_root/lib/action_summary.py" "$install_root/lib/action_summary.py"
 cp "$repo_root/lib/hook_context.py" "$install_root/lib/hook_context.py"
 cp "$repo_root/lib/hook_handlers.py" "$install_root/lib/hook_handlers.py"
+cp "$repo_root/lib/transcript_context.py" "$install_root/lib/transcript_context.py"
 cp "$repo_root/lib/llm_provider.py" "$install_root/lib/llm_provider.py"
 cp "$repo_root/lib/session_namer.py" "$install_root/lib/session_namer.py"
 cp "$repo_root/lib/util.py" "$install_root/lib/util.py"
 rm -rf "$install_root/dashboard"
 cp -R "$repo_root/dashboard" "$install_root/dashboard"
-chmod +x "$install_root/hooks/claude-hark.sh" "$install_root/bin/claude-hark" "$install_root/lib/action_summary.py"
+chmod +x "$install_root/hooks/claude-hark.sh" "$install_root/bin/claude-hark" "$install_root/bin/claude-hark-summarize" "$install_root/lib/action_summary.py"
+
+# ---- 创建 Claude-Hark JSON 配置 ----
+# Runtime 每次启动都会读取此文件；不依赖 .zshrc，也不覆盖已有设置。
+if [[ ! -e "$app_settings_path" ]]; then
+  cat > "$app_settings_path" <<'JSON'
+{
+  "_comment": "provider: openai (/v1/responses), openai-compat (/v1/chat/completions), or anthropic (/v1/messages); baseUrl may be empty or a gateway base URL",
+  "llm": {
+    "enabled": false,
+    "provider": "openai",
+    "baseUrl": "",
+    "model": "",
+    "apiKey": "",
+    "timeoutSeconds": 3
+  }
+}
+JSON
+fi
+chmod 600 "$app_settings_path"
+
+# 删除旧 env 配置；JSON settings 是唯一运行时配置来源。
+rm -f "$legacy_config_path"
 
 # ---- 写入 Claude Code hooks 配置 ----
 python3 - <<'PY' "$settings_path" "$install_root"
@@ -77,10 +103,21 @@ if [[ -n "$shell_profile" ]]; then
   if ! grep -Fqx "$path_line" "$shell_profile"; then
     printf '\n%s\n' "$path_line" >> "$shell_profile"
   fi
+  # 清理旧安装器添加的 env source 行。
+  python3 - "$shell_profile" "$legacy_config_path" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+legacy = sys.argv[2]
+lines = path.read_text().splitlines()
+old = f'[[ -f "{legacy}" ]] && source "{legacy}"'
+path.write_text("\n".join(line for line in lines if line != old) + "\n")
+PY
 fi
 
 # ---- 安装结果提示 ----
 echo "Installed to $install_root"
+echo "Claude-Hark settings: $app_settings_path"
 if [[ -n "$shell_profile" ]]; then
   echo "Added $install_root/bin to PATH in $shell_profile"
   echo "Restart your shell or run: source $shell_profile"

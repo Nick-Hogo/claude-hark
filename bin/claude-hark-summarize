@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# OpenAI-compatible and Anthropic summarizer client. The analysis prompt is read from stdin.
+
+client_root="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ -f "$client_root/lib/common.sh" ]]; then
+  source "$client_root/lib/common.sh"
+  load_hark_settings
+fi
+provider="${CLAUDE_HARK_LLM_PROVIDER:-openai}"
+: "${CLAUDE_HARK_LLM_MODEL:?Set CLAUDE_HARK_LLM_MODEL in ~/.config/claude-hark/env}"
+: "${CLAUDE_HARK_LLM_API_KEY:?Set CLAUDE_HARK_LLM_API_KEY in ~/.config/claude-hark/env}"
+
+request_file="$(mktemp)"
+response_file="$(mktemp)"
+trap 'rm -f "$request_file" "$response_file"' EXIT
+
+# CLAUDE_HARK_LLM_URL may be either a gateway base URL or a complete endpoint.
+provider_url() {
+  local configured="${CLAUDE_HARK_LLM_URL:-}"
+  local default_url="$1"
+  local endpoint_path="$2"
+  configured="${configured%/}"
+  if [[ -z "$configured" ]]; then
+    printf '%s\n' "$default_url"
+  elif [[ "$configured" == *"$endpoint_path" ]]; then
+    printf '%s\n' "$configured"
+  else
+    printf '%s%s\n' "$configured" "$endpoint_path"
+  fi
+}
+
+case "$provider" in
+  openai)
+    url="$(provider_url 'https://api.openai.com/v1/responses' '/v1/responses')"
+    jq -n \
+      --arg model "$CLAUDE_HARK_LLM_MODEL" \
+      --rawfile prompt /dev/stdin \
+      '{model: $model, input: $prompt, temperature: 0.1}' \
+      > "$request_file"
+    curl --fail --silent --show-error \
+      --max-time "${CLAUDE_HARK_SUMMARIZER_TIMEOUT:-3}" \
+      -H "Authorization: Bearer $CLAUDE_HARK_LLM_API_KEY" \
+      -H 'Content-Type: application/json' \
+      --data-binary "@$request_file" \
+      "$url" > "$response_file"
+    jq -er '[.output[]?.content[]? | select(.type == "output_text") | .text] | join("\n") | select(length > 0)' "$response_file"
+    ;;
+  openai-compat)
+    url="$(provider_url 'https://api.openai.com/v1/chat/completions' '/v1/chat/completions')"
+    jq -n \
+      --arg model "$CLAUDE_HARK_LLM_MODEL" \
+      --rawfile prompt /dev/stdin \
+      '{model: $model, messages: [{role: "user", content: $prompt}], temperature: 0.1}' \
+      > "$request_file"
+    curl --fail --silent --show-error \
+      --max-time "${CLAUDE_HARK_SUMMARIZER_TIMEOUT:-3}" \
+      -H "Authorization: Bearer $CLAUDE_HARK_LLM_API_KEY" \
+      -H 'Content-Type: application/json' \
+      --data-binary "@$request_file" \
+      "$url" > "$response_file"
+    jq -er '.choices[0].message.content' "$response_file"
+    ;;
+  anthropic)
+    url="$(provider_url 'https://api.anthropic.com/v1/messages' '/v1/messages')"
+    jq -n \
+      --arg model "$CLAUDE_HARK_LLM_MODEL" \
+      --rawfile prompt /dev/stdin \
+      '{model: $model, max_tokens: 600, temperature: 0.1, messages: [{role: "user", content: $prompt}]}' \
+      > "$request_file"
+    curl --fail --silent --show-error \
+      --max-time "${CLAUDE_HARK_SUMMARIZER_TIMEOUT:-3}" \
+      -H "x-api-key: $CLAUDE_HARK_LLM_API_KEY" \
+      -H 'anthropic-version: 2023-06-01' \
+      -H 'Content-Type: application/json' \
+      --data-binary "@$request_file" \
+      "$url" > "$response_file"
+    jq -er '[.content[] | select(.type == "text") | .text] | join("\n") | select(length > 0)' "$response_file"
+    ;;
+  *)
+    printf 'Unsupported CLAUDE_HARK_LLM_PROVIDER: %s (expected openai, openai-compat, or anthropic)\n' "$provider" >&2
+    exit 2
+    ;;
+esac
